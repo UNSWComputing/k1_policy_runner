@@ -11,7 +11,13 @@ from policy_runner.policy.arm_demo_common import (
     make_elbow_cmd,
 )
 from policy_runner.policy.base import Policy
-from policy_runner.types import B1_JOINT_COUNT, Action, Observation, RobotState
+from policy_runner.types import (
+    BASE_OBS_DIM,
+    Action,
+    Observation,
+    RobotState,
+    pack_observation,
+)
 
 _ELBOW_BASE = 0.0
 _ELBOW_AMP = 0.4
@@ -29,7 +35,7 @@ class SineArmPolicy(Policy):
         return "sine_arm"
 
     def input_dim(self) -> int:
-        return B1_JOINT_COUNT
+        return BASE_OBS_DIM
 
     def controlled_joints(self) -> List[int]:
         return [LEFT_ELBOW, RIGHT_ELBOW]
@@ -37,10 +43,7 @@ class SineArmPolicy(Policy):
     def build_observation(
         self, state: RobotState, command: Sequence[float]
     ) -> Observation:
-        del command
-        if len(state.q) != B1_JOINT_COUNT:
-            raise ValueError("SineArmPolicy: RobotState.q size mismatch")
-        return Observation(data=list(state.q))
+        return pack_observation(state, command)
 
     def infer(self, obs: Observation) -> Action:
         if len(obs.data) != self.input_dim():

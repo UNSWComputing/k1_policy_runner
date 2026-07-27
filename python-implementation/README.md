@@ -5,6 +5,7 @@ Same logic as the C++ pipeline, but I/O goes through ROS 2:
 | Direction | Topic | Type |
 |---|---|---|
 | Input | `/joint_states` | `sensor_msgs/msg/JointState` |
+| Input | `/low_state` | `booster_interface/msg/LowState` (IMU: rpy, gyro, acc) |
 | Output | `/joint_ctrl` | `booster_interface/msg/LowCmd` |
 
 ## Requirements
@@ -40,7 +41,8 @@ From `python-implementation/`:
 ```bash
 python3 policy_runner_main.py sine_arm
 python3 policy_runner_main.py sine_knee
-python3 policy_runner_main.py sine_arm,sine_knee   # parallel, merged
+python3 policy_runner_main.py hold_lower
+python3 policy_runner_main.py sine_arm,hold_lower   # arms move, legs hold
 ```
 
 Optional topic overrides:
@@ -66,7 +68,10 @@ python3 policy_runner_main.py sine_arm,sine_knee \
 | `sine_arm` | Elbows follow a sine wave | Left + right elbow (5, 9) |
 | `step_arm` | Elbows step between two angles | Left + right elbow (5, 9) |
 | `sine_knee` | Knee pitches follow a sine wave | Left + right knee pitch (13, 19) |
+| `hold_lower` | Hold legs at start pose | Lower body (10–21) |
 
 Policies emit **sparse** actions. Pass several comma-separated names to run them in parallel; actions are merged by joint index (later policy wins on conflicts). Unowned joints stay `weight = 0`.
+
+Default observation layout: `[joint_q (22), imu_rpy/gyro/acc (9), projected_gravity (3)]` (= 34 dims), plus any optional command extras.
 
 `/joint_states` is mapped by joint **name** using `JOINT_NAMES` in `joint_index.py`; otherwise positions are assumed to be in `JointIndex` order.

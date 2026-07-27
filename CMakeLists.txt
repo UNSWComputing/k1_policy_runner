@@ -82,6 +82,7 @@ add_executable(policy_runner
   src/policy/sine_arm_policy.cpp
   src/policy/step_arm_policy.cpp
   src/policy/sine_knee_policy.cpp
+  src/policy/hold_lower_body_policy.cpp
 )
 
 target_include_directories(policy_runner PRIVATE

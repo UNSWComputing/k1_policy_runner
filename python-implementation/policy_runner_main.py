@@ -23,6 +23,7 @@ from booster_robotics_sdk_python import (  # type: ignore
 )
 
 from policy_runner.policy import (
+    HoldLowerBodyPolicy,
     Policy,
     SineArmPolicy,
     SineKneePolicy,
@@ -31,8 +32,8 @@ from policy_runner.policy import (
 )
 from policy_runner.robot import RobotBridge, spin_bridge_in_background
 
-CONTROL_DT = 0.02  # 50 Hz
-AVAILABLE = ("sine_arm", "step_arm", "sine_knee")
+CONTROL_DT = 0.01  # 100 Hz
+AVAILABLE = ("sine_arm", "step_arm", "sine_knee", "hold_lower")
 
 
 def make_policy(name: str) -> Optional[Policy]:
@@ -42,6 +43,8 @@ def make_policy(name: str) -> Optional[Policy]:
         return StepArmPolicy(CONTROL_DT)
     if name == "sine_knee":
         return SineKneePolicy(CONTROL_DT)
+    if name == "hold_lower":
+        return HoldLowerBodyPolicy(CONTROL_DT)
     return None
 
 
@@ -53,18 +56,24 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Run one or more policies in parallel over ROS2 "
-            "(/joint_states -> /joint_ctrl). Sparse actions are merged."
+            "(/joint_states + /low_state IMU -> /joint_ctrl). "
+            "Sparse actions are merged."
         )
     )
     parser.add_argument(
         "policies",
-        help="Comma-separated policies, e.g. sine_arm or sine_arm,sine_knee. "
+        help="Comma-separated policies, e.g. sine_arm,hold_lower. "
         f"Available: {', '.join(AVAILABLE)}",
     )
     parser.add_argument(
         "--joint-states-topic",
         default="/joint_states",
         help="Input JointState topic (default: /joint_states)",
+    )
+    parser.add_argument(
+        "--low-state-topic",
+        default="/low_state",
+        help="Input LowState topic for IMU (default: /low_state)",
     )
     parser.add_argument(
         "--joint-ctrl-topic",
@@ -91,6 +100,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     bridge = RobotBridge(
         joint_state_topic=args.joint_states_topic,
         joint_ctrl_topic=args.joint_ctrl_topic,
+        low_state_topic=args.low_state_topic,
     )
     spin_bridge_in_background(bridge)
 
@@ -99,7 +109,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             f"Policy: {policy.name()}  input_dim={policy.input_dim()}  "
             f"controlled_joints={len(policy.controlled_joints())}"
         )
-    print("Waiting for /joint_states...")
+    print("Waiting for /joint_states and /low_state (IMU)...")
     ChannelFactory.Instance().Init(0)
     client = B1LocoClient()
     client.Init()

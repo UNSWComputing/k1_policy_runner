@@ -82,6 +82,14 @@ void RobotBridge::OnLowState(
     state.dq[i] = motors[i].dq();
   }
 
+  const auto& imu = low_state->imu_state();
+  for (int i = 0; i < 3; ++i) {
+    state.imu.rpy[i] = imu.rpy()[i];
+    state.imu.gyro[i] = imu.gyro()[i];
+    state.imu.acc[i] = imu.acc()[i];
+  }
+  state.projected_gravity = ComputeProjectedGravity(state.imu.rpy);
+
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     latest_state_ = std::move(state);

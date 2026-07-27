@@ -23,7 +23,9 @@ SineKneePolicy::SineKneePolicy(float control_dt) : control_dt_(control_dt) {}
 
 std::string SineKneePolicy::name() const { return "sine_knee"; }
 
-std::size_t SineKneePolicy::input_dim() const { return kB1JointCount; }
+std::size_t SineKneePolicy::input_dim() const {
+  return kBaseObsDim;
+}
 
 std::vector<int> SineKneePolicy::controlled_joints() const {
   return {kLeftKneePitch, kRightKneePitch};
@@ -31,13 +33,8 @@ std::vector<int> SineKneePolicy::controlled_joints() const {
 
 Observation SineKneePolicy::BuildObservation(
     const RobotState& state,
-    const std::vector<float>& /*command*/) const {
-  if (state.q.size() != kB1JointCount) {
-    throw std::runtime_error("SineKneePolicy: RobotState.q size mismatch");
-  }
-  Observation obs;
-  obs.data = state.q;
-  return obs;
+    const std::vector<float>& command) const {
+  return PackObservation(state, command);
 }
 
 Action SineKneePolicy::Infer(const Observation& obs) {

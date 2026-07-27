@@ -1,3 +1,4 @@
+#include "policy/hold_lower_body_policy.hpp"
 #include "policy/merge.hpp"
 #include "policy/policy.hpp"
 #include "policy/sine_arm_policy.hpp"
@@ -21,8 +22,8 @@ void PrintUsage(const char* argv0) {
   std::cout
       << "Usage: " << argv0
       << " <policies> [networkInterface]\n"
-      << "  policies: comma-separated list, e.g. sine_arm or sine_arm,sine_knee\n"
-      << "  available: sine_arm | step_arm | sine_knee\n"
+      << "  policies: comma-separated list, e.g. sine_arm,hold_lower\n"
+      << "  available: sine_arm | step_arm | sine_knee | hold_lower\n"
       << "\n"
       << "Before running: put the robot in Prepare mode, start this process,\n"
       << "press ENTER, then switch the robot to Custom mode.\n";
@@ -37,6 +38,9 @@ std::unique_ptr<policy_runner::Policy> MakePolicy(const std::string& name) {
   }
   if (name == "sine_knee") {
     return std::make_unique<policy_runner::SineKneePolicy>(kControlDt);
+  }
+  if (name == "hold_lower") {
+    return std::make_unique<policy_runner::HoldLowerBodyPolicy>(kControlDt);
   }
   return nullptr;
 }

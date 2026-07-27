@@ -45,7 +45,7 @@ cmake --build .
 
 | Argument | Description |
 |---|---|
-| `policies` | Comma-separated: `sine_arm`, `step_arm`, `sine_knee` |
+| `policies` | Comma-separated: `sine_arm`, `step_arm`, `sine_knee`, `hold_lower` |
 | `networkInterface` | Optional NIC name (same as the SDK examples). Omit to use `Init(0)`. |
 
 Examples:
@@ -53,7 +53,8 @@ Examples:
 ```bash
 ./policy_runner sine_arm
 ./policy_runner sine_knee
-./policy_runner sine_arm,sine_knee          # run both in parallel (merged)
+./policy_runner hold_lower
+./policy_runner sine_arm,hold_lower       # arms move, legs hold
 ./policy_runner sine_arm,sine_knee eth0
 ```
 
@@ -75,10 +76,11 @@ cd python-implementation
 source /opt/ros/$ROS_DISTRO/setup.bash   # + booster_interface overlay if needed
 python3 policy_runner_main.py sine_arm
 python3 policy_runner_main.py sine_knee
-python3 policy_runner_main.py sine_arm,sine_knee   # parallel, merged
+python3 policy_runner_main.py hold_lower
+python3 policy_runner_main.py sine_arm,hold_lower   # arms move, legs hold
 ```
 
-Topics: `/joint_states` (in) → `/joint_ctrl` `booster_interface/msg/LowCmd` (out).  
+Topics: `/joint_states` + `/low_state` (IMU) → `/joint_ctrl` `booster_interface/msg/LowCmd`.  
 Details: [`python-implementation/README.md`](python-implementation/README.md).
 
 ## Policies
@@ -88,8 +90,11 @@ Details: [`python-implementation/README.md`](python-implementation/README.md).
 | `sine_arm` | Elbows follow a sine wave | Left + right elbow (5, 9) |
 | `step_arm` | Elbows step between two angles | Left + right elbow (5, 9) |
 | `sine_knee` | Knee pitches follow a sine wave | Left + right knee pitch (13, 19) |
+| `hold_lower` | Hold legs at start pose | Lower body (10–21) |
 
 Policies emit **sparse** actions. Pass several comma-separated names to run them in parallel; actions are merged by joint index (later policy wins on conflicts). Unowned joints stay `weight = 0`.
+
+Default observation layout: `[joint_q (22), imu_rpy/gyro/acc (9), projected_gravity (3)]` (= 34 dims), plus any optional command extras.
 
 ## Layout
 

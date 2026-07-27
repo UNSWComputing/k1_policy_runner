@@ -8,7 +8,13 @@ from typing import List, Sequence
 from policy_runner.joint_gains import make_joint_cmd
 from policy_runner.joint_index import JointIndex
 from policy_runner.policy.base import Policy
-from policy_runner.types import B1_JOINT_COUNT, Action, Observation, RobotState
+from policy_runner.types import (
+    BASE_OBS_DIM,
+    Action,
+    Observation,
+    RobotState,
+    pack_observation,
+)
 
 LEFT_KNEE_PITCH = int(JointIndex.LEFT_KNEE_PITCH)
 RIGHT_KNEE_PITCH = int(JointIndex.RIGHT_KNEE_PITCH)
@@ -29,7 +35,7 @@ class SineKneePolicy(Policy):
         return "sine_knee"
 
     def input_dim(self) -> int:
-        return B1_JOINT_COUNT
+        return BASE_OBS_DIM
 
     def controlled_joints(self) -> List[int]:
         return [LEFT_KNEE_PITCH, RIGHT_KNEE_PITCH]
@@ -37,10 +43,7 @@ class SineKneePolicy(Policy):
     def build_observation(
         self, state: RobotState, command: Sequence[float]
     ) -> Observation:
-        del command
-        if len(state.q) != B1_JOINT_COUNT:
-            raise ValueError("SineKneePolicy: RobotState.q size mismatch")
-        return Observation(data=list(state.q))
+        return pack_observation(state, command)
 
     def infer(self, obs: Observation) -> Action:
         if len(obs.data) != self.input_dim():
