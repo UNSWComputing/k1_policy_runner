@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/policy_runner.dir/src/policy_runner.cpp.o CMakeFiles/policy_runner.dir/src/robot/robot_bridge.cpp.o CMakeFiles/policy_runner.dir/src/policy/sine_arm_policy.cpp.o CMakeFiles/policy_runner.dir/src/policy/step_arm_policy.cpp.o -o policy_runner  -lpthread 
