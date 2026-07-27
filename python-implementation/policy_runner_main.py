@@ -28,15 +28,17 @@ from policy_runner.policy import (
     SineArmPolicy,
     SineKneePolicy,
     StepArmPolicy,
+    WalkPolicy,
+    WalkPolicyV1,
     merge_actions,
 )
 from policy_runner.robot import RobotBridge, spin_bridge_in_background
 
-CONTROL_DT = 0.01  # 100 Hz
-AVAILABLE = ("sine_arm", "step_arm", "sine_knee", "hold_lower")
+CONTROL_DT = 0.02  # 100 Hz
+AVAILABLE = ("sine_arm", "step_arm", "sine_knee", "hold_lower", "walk", "walk_v1")
 
 
-def make_policy(name: str) -> Optional[Policy]:
+def make_policy(name: str, model_path: Optional[str] = None) -> Optional[Policy]:
     if name == "sine_arm":
         return SineArmPolicy(CONTROL_DT)
     if name == "step_arm":
@@ -45,6 +47,10 @@ def make_policy(name: str) -> Optional[Policy]:
         return SineKneePolicy(CONTROL_DT)
     if name == "hold_lower":
         return HoldLowerBodyPolicy(CONTROL_DT)
+    if name == "walk":
+        return WalkPolicy(CONTROL_DT)
+    if name == "walk_v1":
+        return WalkPolicyV1(CONTROL_DT, model_path=model_path)
     return None
 
 
@@ -80,6 +86,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         default="/joint_ctrl",
         help="Output LowCmd topic (default: /joint_ctrl)",
     )
+    parser.add_argument(
+        "--model-path",
+        default=None,
+        help="ONNX model for walk_v1 (default: <repo>/k1_v24_model_100800.onnx)",
+    )
     args = parser.parse_args(argv)
 
     names = parse_policy_list(args.policies)
@@ -89,7 +100,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     policies: List[Policy] = []
     for name in names:
-        policy = make_policy(name)
+        policy = make_policy(name, model_path=args.model_path)
         if policy is None:
             print(f"Unknown policy: {name}", file=sys.stderr)
             print(f"Available: {', '.join(AVAILABLE)}", file=sys.stderr)
@@ -106,7 +117,10 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     for policy in policies:
         print(
-            f"Policy: {policy.name()}  input_dim={policy.input_dim()}  "
+            f"Policy: {policy.name()}  "
+            f"obs_dim={policy.observation_dim()}  "
+            f"input_dim={policy.input_dim()}  "
+            f"history_len={policy.history_len()}  "
             f"controlled_joints={len(policy.controlled_joints())}"
         )
     print("Waiting for /joint_states and /low_state (IMU)...")
@@ -129,6 +143,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"Running {len(policies)} polic(y/ies) in parallel. Ctrl+C to stop.")
 
         command: list[float] = []
+        loop_count = 0
+        freq_t0 = time.perf_counter()
 
         while rclpy.ok():
             state = bridge.latest_state()
@@ -137,6 +153,13 @@ def main(argv: Optional[list[str]] = None) -> int:
                 for policy in policies
             ]
             bridge.publish_action(merge_actions(actions))
+            loop_count += 1
+
+            elapsed = time.perf_counter() - freq_t0
+            if elapsed >= 1.0:
+                print(f"control loop: {loop_count / elapsed:.1f} Hz")
+                loop_count = 0
+                freq_t0 = time.perf_counter()
             time.sleep(CONTROL_DT)
     except KeyboardInterrupt:
         print("\nStopped.")

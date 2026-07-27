@@ -29,10 +29,11 @@ def compute_projected_gravity(rpy: Sequence[float]) -> List[float]:
     """Gravity [0, 0, -1] expressed in the base frame from roll/pitch (yaw-invariant)."""
     roll = float(rpy[0]) if len(rpy) > 0 else 0.0
     pitch = float(rpy[1]) if len(rpy) > 1 else 0.0
+    # R^T @ [0, 0, -1]  → upright is [0, 0, -1]
     return [
-        -math.sin(pitch),
-        math.sin(roll) * math.cos(pitch),
-        math.cos(roll) * math.cos(pitch),
+        math.sin(pitch),
+        -math.sin(roll) * math.cos(pitch),
+        -math.cos(roll) * math.cos(pitch),
     ]
 
 
@@ -45,7 +46,7 @@ class RobotState:
     imu: ImuState = field(default_factory=ImuState)
     # Unit gravity vector in the robot base frame (from IMU RPY).
     projected_gravity: List[float] = field(
-        default_factory=lambda: [0.0, 0.0, 1.0]
+        default_factory=lambda: [0.0, 0.0, -1.0]
     )
 
 

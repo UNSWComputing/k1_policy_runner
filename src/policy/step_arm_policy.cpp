@@ -32,9 +32,7 @@ Observation StepArmPolicy::BuildObservation(
 }
 
 Action StepArmPolicy::Infer(const Observation& obs) {
-  if (obs.data.size() != input_dim()) {
-    throw std::runtime_error("StepArmPolicy: observation size mismatch");
-  }
+  AssertFrameObservation(obs);
 
   const bool use_b =
       (static_cast<int>(time_s_ / period_s_) % 2) == 1;

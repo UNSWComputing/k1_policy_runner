@@ -45,8 +45,7 @@ class HoldLowerBodyPolicy(Policy):
         return pack_observation(state, command)
 
     def infer(self, obs: Observation) -> Action:
-        if len(obs.data) != self.input_dim():
-            raise ValueError("HoldLowerBodyPolicy: observation size mismatch")
+        self.assert_frame_observation(obs)
 
         # Latch joint positions only (not IMU / command extras).
         if not self._hold_captured:

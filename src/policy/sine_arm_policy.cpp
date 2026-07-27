@@ -33,9 +33,7 @@ Observation SineArmPolicy::BuildObservation(
 }
 
 Action SineArmPolicy::Infer(const Observation& obs) {
-  if (obs.data.size() != input_dim()) {
-    throw std::runtime_error("SineArmPolicy: observation size mismatch");
-  }
+  AssertFrameObservation(obs);
 
   const float phase = 2.f * 3.14159265f * kFreqHz * time_s_;
   const float elbow_q = kElbowBase + kElbowAmp * std::sin(phase);

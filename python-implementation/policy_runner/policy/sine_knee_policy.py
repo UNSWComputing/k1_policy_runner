@@ -46,8 +46,7 @@ class SineKneePolicy(Policy):
         return pack_observation(state, command)
 
     def infer(self, obs: Observation) -> Action:
-        if len(obs.data) != self.input_dim():
-            raise ValueError("SineKneePolicy: observation size mismatch")
+        self.assert_frame_observation(obs)
 
         phase = 2.0 * math.pi * _FREQ_HZ * self._time_s
         knee_q = _KNEE_BASE + _KNEE_AMP * math.sin(phase)

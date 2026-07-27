@@ -45,8 +45,7 @@ class StepArmPolicy(Policy):
         return pack_observation(state, command)
 
     def infer(self, obs: Observation) -> Action:
-        if len(obs.data) != self.input_dim():
-            raise ValueError("StepArmPolicy: observation size mismatch")
+        self.assert_frame_observation(obs)
 
         use_b = int(self._time_s / self._period_s) % 2 == 1
         elbow_q = _ELBOW_B if use_b else _ELBOW_A

@@ -27,9 +27,9 @@ inline std::array<float, 3> ComputeProjectedGravity(
   const float roll = rpy[0];
   const float pitch = rpy[1];
   return {
-      -std::sin(pitch),
-      std::sin(roll) * std::cos(pitch),
-      std::cos(roll) * std::cos(pitch),
+      std::sin(pitch),
+      -std::sin(roll) * std::cos(pitch),
+      -std::cos(roll) * std::cos(pitch),
   };
 }
 
@@ -38,7 +38,7 @@ struct RobotState {
   std::vector<float> q;   // joint positions, size == kB1JointCount
   std::vector<float> dq;  // joint velocities, size == kB1JointCount
   ImuState imu;
-  std::array<float, 3> projected_gravity{{0.f, 0.f, 1.f}};
+  std::array<float, 3> projected_gravity{{0.f, 0.f, -1.f}};
 };
 
 // Flat observation vector consumed by a policy.

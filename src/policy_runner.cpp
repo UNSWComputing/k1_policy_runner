@@ -90,7 +90,9 @@ int main(int argc, char const* argv[]) {
 
   for (const auto& policy : policies) {
     std::cout << "Policy: " << policy->name()
+              << "  obs_dim=" << policy->observation_dim()
               << "  input_dim=" << policy->input_dim()
+              << "  history_len=" << policy->history_len()
               << "  controlled_joints=" << policy->controlled_joints().size()
               << std::endl;
   }

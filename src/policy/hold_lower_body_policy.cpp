@@ -39,9 +39,7 @@ Observation HoldLowerBodyPolicy::BuildObservation(
 }
 
 Action HoldLowerBodyPolicy::Infer(const Observation& obs) {
-  if (obs.data.size() != input_dim()) {
-    throw std::runtime_error("HoldLowerBodyPolicy: observation size mismatch");
-  }
+  AssertFrameObservation(obs);
 
   // Latch joint positions only (not IMU / command extras).
   if (!hold_captured_) {

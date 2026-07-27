@@ -46,8 +46,7 @@ class SineArmPolicy(Policy):
         return pack_observation(state, command)
 
     def infer(self, obs: Observation) -> Action:
-        if len(obs.data) != self.input_dim():
-            raise ValueError("SineArmPolicy: observation size mismatch")
+        self.assert_frame_observation(obs)
 
         phase = 2.0 * math.pi * _FREQ_HZ * self._time_s
         elbow_q = _ELBOW_BASE + _ELBOW_AMP * math.sin(phase)

@@ -1,15 +1,21 @@
 from policy_runner.policy.base import Policy
 from policy_runner.policy.hold_lower_body_policy import HoldLowerBodyPolicy
 from policy_runner.policy.merge import merge_actions
+from policy_runner.policy.obs_history import ObservationHistory
 from policy_runner.policy.sine_arm_policy import SineArmPolicy
 from policy_runner.policy.sine_knee_policy import SineKneePolicy
 from policy_runner.policy.step_arm_policy import StepArmPolicy
+from policy_runner.policy.walk_policy import WalkPolicy
+from policy_runner.policy.walk_policy_v1 import WalkPolicyV1
 
 __all__ = [
     "Policy",
     "HoldLowerBodyPolicy",
+    "ObservationHistory",
     "SineArmPolicy",
     "SineKneePolicy",
     "StepArmPolicy",
+    "WalkPolicy",
+    "WalkPolicyV1",
     "merge_actions",
 ]

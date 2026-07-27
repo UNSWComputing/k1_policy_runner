@@ -69,9 +69,13 @@ python3 policy_runner_main.py sine_arm,sine_knee \
 | `step_arm` | Elbows step between two angles | Left + right elbow (5, 9) |
 | `sine_knee` | Knee pitches follow a sine wave | Left + right knee pitch (13, 19) |
 | `hold_lower` | Hold legs at start pose | Lower body (10–21) |
+| `walk` | Stub history example | Lower body (10–21) |
+| `walk_v1` | Learned walk via ONNX (`k1_v24_model_100800.onnx`, 65×3 → 12) | Lower body (10–21) |
 
 Policies emit **sparse** actions. Pass several comma-separated names to run them in parallel; actions are merged by joint index (later policy wins on conflicts). Unowned joints stay `weight = 0`.
 
 Default observation layout: `[joint_q (22), imu_rpy/gyro/acc (9), projected_gravity (3)]` (= 34 dims), plus any optional command extras.
+
+**History / dims:** `observation_dim` is one frame from `build_observation`; `input_dim` is what the model consumes (may be `observation_dim * history_len`). Keep history inside the policy and check frames with `assert_frame_observation` / `ObservationHistory` — see `walk_policy.py`.
 
 `/joint_states` is mapped by joint **name** using `JOINT_NAMES` in `joint_index.py`; otherwise positions are assumed to be in `JointIndex` order.

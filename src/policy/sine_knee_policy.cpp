@@ -38,9 +38,7 @@ Observation SineKneePolicy::BuildObservation(
 }
 
 Action SineKneePolicy::Infer(const Observation& obs) {
-  if (obs.data.size() != input_dim()) {
-    throw std::runtime_error("SineKneePolicy: observation size mismatch");
-  }
+  AssertFrameObservation(obs);
 
   const float phase = 2.f * 3.14159265f * kFreqHz * time_s_;
   const float knee_q = kKneeBase + kKneeAmp * std::sin(phase);

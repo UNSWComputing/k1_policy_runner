@@ -1,3 +1,6 @@
 # ROS2 Python deps (rclpy, sensor_msgs, booster_interface) come from the
 # sourced ROS 2 workspace — they are not installed via pip.
-# No extra third-party packages required beyond the stdlib for the demo policies.
+#
+# For learned policies (e.g. walk_v1):
+numpy>=1.24.0
+onnxruntime>=1.16.0

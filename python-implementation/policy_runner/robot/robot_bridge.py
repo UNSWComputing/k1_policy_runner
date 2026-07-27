@@ -51,7 +51,7 @@ class RobotBridge(Node):
             q=[0.0] * B1_JOINT_COUNT,
             dq=[0.0] * B1_JOINT_COUNT,
             imu=ImuState(),
-            projected_gravity=[0.0, 0.0, 1.0],
+            projected_gravity=[0.0, 0.0, -1.0],
         )
         self._has_joint_state = False
         self._has_imu = False
