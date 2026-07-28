@@ -74,10 +74,32 @@ Same as `example/b1_low_sdk_example.cpp`:
 ```bash
 cd python-implementation
 source /opt/ros/$ROS_DISTRO/setup.bash   # + booster_interface overlay if needed
+pip install -r requirements.txt         # numpy, onnxruntime, matplotlib
 python3 policy_runner_main.py sine_arm
 python3 policy_runner_main.py sine_knee
 python3 policy_runner_main.py hold_lower
 python3 policy_runner_main.py sine_arm,hold_lower   # arms move, legs hold
+```
+
+### Walk v1 + observation recording
+
+`walk_v1` settles to the default pose for 5s, then runs the ONNX walk policy (full body: RL legs + held upper body). Record the 195-D model inputs with `--record-obs`:
+
+```bash
+cd python-implementation
+python3 policy_runner_main.py walk_v1 --record-obs ../runs/walk_obs
+# optional model override:
+# python3 policy_runner_main.py walk_v1 --model-path ../k1_v24_model_105600.onnx --record-obs ../runs/walk_obs
+```
+
+On Ctrl+C this writes `runs/walk_obs.npz` (obs + timestamps) and `runs/walk_obs.json` (layout meta).
+
+Inspect / plot from the repo root:
+
+```bash
+python3 joint_record.py runs/walk_obs.npz
+python3 joint_record.py runs/walk_obs.npz --plot
+python3 joint_record.py runs/walk_obs.npz --plot --save runs/walk --no-show
 ```
 
 Topics: `/joint_states` + `/low_state` (IMU) → `/joint_ctrl` `booster_interface/msg/LowCmd`.  
@@ -91,6 +113,8 @@ Details: [`python-implementation/README.md`](python-implementation/README.md).
 | `step_arm` | Elbows step between two angles | Left + right elbow (5, 9) |
 | `sine_knee` | Knee pitches follow a sine wave | Left + right knee pitch (13, 19) |
 | `hold_lower` | Hold legs at start pose | Lower body (10–21) |
+| `walk` | Stub history example | Lower body (10–21) |
+| `walk_v1` | Learned walk via ONNX (65×3 → 12); settle then RL | Full body (0–21) |
 
 Policies emit **sparse** actions. Pass several comma-separated names to run them in parallel; actions are merged by joint index (later policy wins on conflicts). Unowned joints stay `weight = 0`.
 

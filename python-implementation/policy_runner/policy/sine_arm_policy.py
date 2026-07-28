@@ -20,7 +20,7 @@ from policy_runner.types import (
 )
 
 _ELBOW_BASE = 0.0
-_ELBOW_AMP = 0.4
+_ELBOW_AMP = 1.2
 _FREQ_HZ = 0.5
 
 

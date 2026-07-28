@@ -43,6 +43,7 @@ python3 policy_runner_main.py sine_arm
 python3 policy_runner_main.py sine_knee
 python3 policy_runner_main.py hold_lower
 python3 policy_runner_main.py sine_arm,hold_lower   # arms move, legs hold
+python3 policy_runner_main.py walk_v1
 ```
 
 Optional topic overrides:
@@ -51,6 +52,37 @@ Optional topic overrides:
 python3 policy_runner_main.py sine_arm,sine_knee \
   --joint-states-topic /joint_states \
   --joint-ctrl-topic /joint_ctrl
+```
+
+### Walk v1 + recording
+
+Requires `onnxruntime` (see `requirements.txt`). Default model: repo-root `k1_v24_model_105600.onnx`.
+
+```bash
+# Record 195-D model inputs while running (saved on Ctrl+C)
+python3 policy_runner_main.py walk_v1 --record-obs ../runs/walk_obs
+
+# Optional: choose ONNX weights
+python3 policy_runner_main.py walk_v1 \
+  --model-path ../k1_v24_model_105600.onnx \
+  --record-obs ../runs/walk_obs
+```
+
+Outputs:
+
+| File | Contents |
+|---|---|
+| `runs/walk_obs.npz` | `obs` `[T, 195]`, `timestamps` `[T]`, layout `meta` |
+| `runs/walk_obs.json` | Human-readable layout (term names / sizes / history) |
+
+Recording starts only after the settle phase ends (RL steps). Inspect / plot from the **repo root**:
+
+```bash
+python3 joint_record.py runs/walk_obs.npz
+python3 joint_record.py runs/walk_obs.npz --term joint_pos
+python3 joint_record.py runs/walk_obs.npz --term actions
+python3 joint_record.py runs/walk_obs.npz --plot
+python3 joint_record.py runs/walk_obs.npz --plot --save runs/walk --no-show
 ```
 
 ### Safety sequence
@@ -70,7 +102,7 @@ python3 policy_runner_main.py sine_arm,sine_knee \
 | `sine_knee` | Knee pitches follow a sine wave | Left + right knee pitch (13, 19) |
 | `hold_lower` | Hold legs at start pose | Lower body (10–21) |
 | `walk` | Stub history example | Lower body (10–21) |
-| `walk_v1` | Learned walk via ONNX (`k1_v24_model_100800.onnx`, 65×3 → 12) | Lower body (10–21) |
+| `walk_v1` | ONNX walk: 5s settle to default pose, then RL (legs) + hold upper body | Full body (0–21) |
 
 Policies emit **sparse** actions. Pass several comma-separated names to run them in parallel; actions are merged by joint index (later policy wins on conflicts). Unowned joints stay `weight = 0`.
 

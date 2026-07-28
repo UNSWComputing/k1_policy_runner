@@ -1,0 +1,25 @@
+{
+  "layout": "term",
+  "frame_dim": 65,
+  "history_len": 3,
+  "model_input_dim": 195,
+  "term_names": [
+    "base_ang_vel",
+    "projected_gravity",
+    "joint_pos",
+    "joint_vel",
+    "actions",
+    "command"
+  ],
+  "term_sizes": [
+    3,
+    3,
+    22,
+    22,
+    12,
+    3
+  ],
+  "notes": "Term-major: for each term, concat history oldest\u2192newest [t-2|t-1|t]. joint_pos is relative to DEFAULT_JOINT_POS. actions is last raw policy emit (no scale/offset/clamp).",
+  "num_steps": 568,
+  "saved_at": "2026-07-28T10:38:50"
+}

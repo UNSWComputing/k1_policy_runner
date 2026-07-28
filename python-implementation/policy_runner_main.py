@@ -22,6 +22,7 @@ from booster_robotics_sdk_python import (  # type: ignore
     RobotMode,
 )
 
+from policy_runner.obs_record import ModelInputRecorder
 from policy_runner.policy import (
     HoldLowerBodyPolicy,
     Policy,
@@ -38,7 +39,11 @@ CONTROL_DT = 0.02  # 100 Hz
 AVAILABLE = ("sine_arm", "step_arm", "sine_knee", "hold_lower", "walk", "walk_v1")
 
 
-def make_policy(name: str, model_path: Optional[str] = None) -> Optional[Policy]:
+def make_policy(
+    name: str,
+    model_path: Optional[str] = None,
+    recorder: Optional[ModelInputRecorder] = None,
+) -> Optional[Policy]:
     if name == "sine_arm":
         return SineArmPolicy(CONTROL_DT)
     if name == "step_arm":
@@ -50,7 +55,7 @@ def make_policy(name: str, model_path: Optional[str] = None) -> Optional[Policy]
     if name == "walk":
         return WalkPolicy(CONTROL_DT)
     if name == "walk_v1":
-        return WalkPolicyV1(CONTROL_DT, model_path=model_path)
+        return WalkPolicyV1(CONTROL_DT, model_path=model_path, recorder=recorder)
     return None
 
 
@@ -91,6 +96,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         default=None,
         help="ONNX model for walk_v1 (default: <repo>/k1_v24_model_100800.onnx)",
     )
+    parser.add_argument(
+        "--record-obs",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Record walk_v1 195-D model inputs to PATH.npz "
+            "(layout meta saved alongside as PATH.json)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     names = parse_policy_list(args.policies)
@@ -98,9 +112,24 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("No policies specified.", file=sys.stderr)
         return 1
 
+    recorder: Optional[ModelInputRecorder] = None
+    if args.record_obs:
+        if "walk_v1" not in names:
+            print(
+                "--record-obs requires walk_v1 in the policy list",
+                file=sys.stderr,
+            )
+            return 1
+        recorder = ModelInputRecorder(args.record_obs)
+        print(f"Recording walk_v1 model inputs → {Path(args.record_obs)}")
+
     policies: List[Policy] = []
     for name in names:
-        policy = make_policy(name, model_path=args.model_path)
+        policy = make_policy(
+            name,
+            model_path=args.model_path,
+            recorder=recorder if name == "walk_v1" else None,
+        )
         if policy is None:
             print(f"Unknown policy: {name}", file=sys.stderr)
             print(f"Available: {', '.join(AVAILABLE)}", file=sys.stderr)
@@ -127,7 +156,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     ChannelFactory.Instance().Init(0)
     client = B1LocoClient()
     client.Init()
-    time.sleep(2)
 
     try:
         while rclpy.ok() and not bridge.has_state():
@@ -164,6 +192,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
+        if recorder is not None and len(recorder) > 0:
+            recorder.save()
         bridge.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
