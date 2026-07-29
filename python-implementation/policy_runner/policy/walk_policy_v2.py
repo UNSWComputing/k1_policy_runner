@@ -1,23 +1,19 @@
-"""Walk policy v1 — 65-dim frame obs × history 3 → 12-dim lower-body action.
+"""Walk policy v2 — 61-dim frame obs × history 3 → 12-dim leg action.
 
-Frame layout (65):
+Frame layout (61):
   base_ang_vel (3)       IMU gyro
   projected_gravity (3)
-  joint_pos (22)         q relative to DEFAULT (offset layer)
-  joint_vel (22)
-  actions (12)           last commanded action (clamped, relative), no offset
+  joint_pos (20)         arms+legs, q relative to DEFAULT (no head)
+  joint_vel (20)         same joints
+  actions (12)           last commanded action (clamped, relative)
   command (3)            twist (vx, vy, ωz)
 
-Startup: hold all joints at DEFAULT_JOINT_POS for settle_s (default 5s),
-then start RL walk. During RL, legs follow the policy; upper body is held
-at DEFAULT_JOINT_POS with joint_gains PD.
+Startup: hold all joints at DEFAULT_JOINT_POS for settle_s, then RL walk.
+During RL, legs follow the policy; upper body is held at DEFAULT with
+joint_gains PD.
 
-Model I/O is relative. Absolute robot commands via offset layer only:
-  q_abs = DEFAULT + scale * a_rel
-
-Model: ONNX (architecture + normalizer baked in). Default:
-  <repo>/k1_v24_model_100800.onnx
-  input  "obs"     → [1, 195]  term-major: per term group, [t-2|t-1|t]
+Default model: <repo>/v2_models/model_31150.onnx
+  input  "obs"     → [1, 183]  term-major: per term group, [t-2|t-1|t]
   output "actions" → [1, 12]
 """
 
@@ -44,8 +40,7 @@ from policy_runner.types import (
 )
 
 # ---------------------------------------------------------------------------
-# Offset layer — default / HOME pose (absolute rad), stored as numpy.
-# Used only when converting action → robot q targets (not for last_action obs).
+# Offset layer — default / HOME pose (absolute rad).
 # ---------------------------------------------------------------------------
 
 LEG_JOINTS = np.asarray(
@@ -67,14 +62,16 @@ LEG_JOINTS = np.asarray(
 )
 assert LEG_JOINTS.shape == (12,)
 
+# Arms + legs only in obs (exclude Head_Yaw=0, Head_Pitch=1).
+OBS_BODY_JOINTS = np.arange(
+    int(JointIndex.LEFT_SHOULDER_PITCH), B1_JOINT_COUNT, dtype=np.int64
+)
+assert OBS_BODY_JOINTS.shape == (20,)
+
 # Head + arms (JointIndex 0..9). Held at DEFAULT during settle and RL.
 UPPER_BODY_JOINTS = np.arange(0, int(JointIndex.LEFT_HIP_PITCH), dtype=np.int64)
 assert UPPER_BODY_JOINTS.shape == (10,)
 
-# Walk PD gains (legs only). Effort limits noted for reference / future use.
-# Hip pitch/roll/yaw: kp=80 kd=4  effort 45/20/20
-# Knee:               kp=80 kd=4  effort 40
-# Ankle pitch/roll:   kp=25 kd=1  effort 20/15
 WALK_KP = {
     int(JointIndex.LEFT_HIP_PITCH): 80.0,
     int(JointIndex.LEFT_HIP_ROLL): 80.0,
@@ -94,29 +91,39 @@ WALK_KD = {
     int(JointIndex.LEFT_HIP_ROLL): 4.0,
     int(JointIndex.LEFT_HIP_YAW): 4.0,
     int(JointIndex.LEFT_KNEE_PITCH): 4.0,
-    int(JointIndex.LEFT_ANKLE_PITCH): 2.0, # 1.0,
-    int(JointIndex.LEFT_ANKLE_ROLL): 2.0, # 1.0,
+    int(JointIndex.LEFT_ANKLE_PITCH): 2.0,
+    int(JointIndex.LEFT_ANKLE_ROLL): 2.0,
     int(JointIndex.RIGHT_HIP_PITCH): 4.0,
     int(JointIndex.RIGHT_HIP_ROLL): 4.0,
     int(JointIndex.RIGHT_HIP_YAW): 4.0,
     int(JointIndex.RIGHT_KNEE_PITCH): 4.0,
-    int(JointIndex.RIGHT_ANKLE_PITCH): 2.0, # 1.0,
-    int(JointIndex.RIGHT_ANKLE_ROLL): 2.0, # 1.0,
+    int(JointIndex.RIGHT_ANKLE_PITCH): 2.0,
+    int(JointIndex.RIGHT_ANKLE_ROLL): 2.0,
 }
-WALK_EFFORT_LIMIT = {
-    int(JointIndex.LEFT_HIP_PITCH): 45.0,
-    int(JointIndex.LEFT_HIP_ROLL): 20.0,
-    int(JointIndex.LEFT_HIP_YAW): 20.0,
-    int(JointIndex.LEFT_KNEE_PITCH): 40.0,
-    int(JointIndex.LEFT_ANKLE_PITCH): 20.0,
-    int(JointIndex.LEFT_ANKLE_ROLL): 15.0,
-    int(JointIndex.RIGHT_HIP_PITCH): 45.0,
-    int(JointIndex.RIGHT_HIP_ROLL): 20.0,
-    int(JointIndex.RIGHT_HIP_YAW): 20.0,
-    int(JointIndex.RIGHT_KNEE_PITCH): 40.0,
-    int(JointIndex.RIGHT_ANKLE_PITCH): 20.0,
-    int(JointIndex.RIGHT_ANKLE_ROLL): 15.0,
-}
+
+ACTION_DIM = 12
+
+# Absolute q limits [lo, hi] per LEG_JOINTS entry — robot commands only.
+Q_ABS_LIMITS = np.asarray(
+    [
+        [-3.000, 2.210],  # Left_Hip_Pitch
+        [-0.400, 1.570],  # Left_Hip_Roll
+        [-1.000, 1.000],  # Left_Hip_Yaw
+        [0.000, 2.230],  # Left_Knee_Pitch
+        [-0.870, 0.345],  # Left_Ankle_Pitch
+        [-0.345, 0.345],  # Left_Ankle_Roll
+        [-3.000, 2.210],  # Right_Hip_Pitch
+        [-1.570, 0.400],  # Right_Hip_Roll
+        [-1.000, 1.000],  # Right_Hip_Yaw
+        [0.000, 2.230],  # Right_Knee_Pitch
+        [-0.870, 0.345],  # Right_Ankle_Pitch
+        [-0.345, 0.345],  # Right_Ankle_Roll
+    ],
+    dtype=np.float64,
+)
+assert Q_ABS_LIMITS.shape == (ACTION_DIM, 2)
+
+DEFAULT_SETTLE_S = 0.5
 
 
 def make_walk_joint_cmd(index: int, q: float) -> JointCommand:
@@ -130,7 +137,7 @@ def make_walk_joint_cmd(index: int, q: float) -> JointCommand:
         weight=1.0,
     )
 
-# Full 22-DoF default pose (JointIndex order). Obs joint_pos = q - this.
+
 DEFAULT_JOINT_POS = np.asarray(
     [
         0.0,  # Head_Yaw
@@ -160,17 +167,44 @@ DEFAULT_JOINT_POS = np.asarray(
 )
 
 
+
+# ARM on the side
+DEFAULT_JOINT_POS = np.asarray(
+    [
+            0.0,
+    0.0,
+    0.0,
+    -1.452,
+    0.009,
+    -0.501,
+    0.0,
+    1.455,
+    -0.026,
+    0.497,
+    -0.001,
+    0.002,
+    0.004,
+    0.109,
+    -0.085,
+    -0.003,
+    -0.000,
+    -0.001,
+    -0.001,
+    0.109,
+    -0.090,
+    0.001,
+   ],
+   dtype=np.float64,
+)
 assert DEFAULT_JOINT_POS.shape == (B1_JOINT_COUNT,)
+
+DEFAULT_LEG_POS = DEFAULT_JOINT_POS[LEG_JOINTS].copy()
+assert DEFAULT_LEG_POS.shape == (12,)
 
 
 def default_pose_action() -> Action:
     """Command every joint to DEFAULT_JOINT_POS (walk gains on legs)."""
     return full_body_action(DEFAULT_LEG_POS)
-
-
-# Legs only — used for action → absolute q (walk RL outputs 12 DoF).
-DEFAULT_LEG_POS = DEFAULT_JOINT_POS[LEG_JOINTS].copy()
-assert DEFAULT_LEG_POS.shape == (12,)
 
 
 def full_body_action(leg_q: Sequence[float]) -> Action:
@@ -192,58 +226,9 @@ def full_body_action(leg_q: Sequence[float]) -> Action:
     )
     return Action(joint_cmds=cmds)
 
-FRAME_ANG_VEL = 3
-FRAME_PROJ_GRAV = 3
-FRAME_JOINT_POS = 22
-FRAME_JOINT_VEL = 22
-FRAME_ACTIONS = 12
-FRAME_COMMAND = 3
-FRAME_TERM_SIZES = (
-    FRAME_ANG_VEL,
-    FRAME_PROJ_GRAV,
-    FRAME_JOINT_POS,
-    FRAME_JOINT_VEL,
-    FRAME_ACTIONS,
-    FRAME_COMMAND,
-)
-FRAME_DIM = sum(FRAME_TERM_SIZES)  # 65
-assert FRAME_DIM == 65
-
-HISTORY_LEN = 3
-MODEL_INPUT_DIM = FRAME_DIM * HISTORY_LEN  # 195
-ACTION_DIM = 12
-
-# Absolute q limits [lo, hi] per LEG_JOINTS entry — robot commands only
-# (not last_action).
-Q_ABS_LIMITS = np.asarray(
-    [
-        [-3.000, 2.210],  # Left_Hip_Pitch
-        [-0.400, 1.570],  # Left_Hip_Roll
-        [-1.000, 1.000],  # Left_Hip_Yaw
-        [0.000, 2.230],  # Left_Knee_Pitch
-        [-0.870, 0.345],  # Left_Ankle_Pitch
-        [-0.345, 0.345],  # Left_Ankle_Roll
-        [-3.000, 2.210],  # Right_Hip_Pitch
-        [-1.570, 0.400],  # Right_Hip_Roll
-        [-1.000, 1.000],  # Right_Hip_Yaw
-        [0.000, 2.230],  # Right_Knee_Pitch
-        [-0.870, 0.345],  # Right_Ankle_Pitch
-        [-0.345, 0.345],  # Right_Ankle_Roll
-    ],
-    dtype=np.float64,
-)
-assert Q_ABS_LIMITS.shape == (ACTION_DIM, 2)
-
-# Hold DEFAULT_JOINT_POS this long after reset, then start RL.
-DEFAULT_SETTLE_S = 0.5
-
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_MODEL_PATH = _REPO_ROOT / "k1_v28_model_116000.onnx"
-# DEFAULT_MODEL_PATH = _REPO_ROOT / "k1_v24_model_105600.onnx"
-
 
 def joint_pos_to_relative(q_abs: Sequence[float]) -> np.ndarray:
-    """Absolute joint positions → relative to DEFAULT_JOINT_POS (model input)."""
+    """Absolute joint positions → relative to DEFAULT_JOINT_POS."""
     q = np.asarray(q_abs, dtype=np.float64)
     if q.shape != (B1_JOINT_COUNT,):
         raise ValueError("joint_pos_to_relative: expected 22 joints")
@@ -260,11 +245,34 @@ def action_to_absolute(
     return DEFAULT_LEG_POS + float(action_scale) * a
 
 
-class WalkPolicyV1(Policy):
+FRAME_ANG_VEL = 3
+FRAME_PROJ_GRAV = 3
+FRAME_JOINT_POS = 20
+FRAME_JOINT_VEL = 20
+FRAME_ACTIONS = 12
+FRAME_COMMAND = 3
+FRAME_TERM_SIZES = (
+    FRAME_ANG_VEL,
+    FRAME_PROJ_GRAV,
+    FRAME_JOINT_POS,
+    FRAME_JOINT_VEL,
+    FRAME_ACTIONS,
+    FRAME_COMMAND,
+)
+FRAME_DIM = sum(FRAME_TERM_SIZES)  # 61
+assert FRAME_DIM == 61
+
+HISTORY_LEN = 3
+MODEL_INPUT_DIM = FRAME_DIM * HISTORY_LEN  # 183
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_MODEL_PATH = _REPO_ROOT / "v2_models" / "model_31150.onnx"
+
+
+class WalkPolicyV2(Policy):
     """
-    observation_dim = 65 (one frame)
-    input_dim       = 195, term-group major (per term: [t-2|t-1|t])
-    last action     = self._last_action: same 12-D policy emit (no scale/offset)
+    observation_dim = 61 (one frame, no head)
+    input_dim       = 183, term-group major (per term: [t-2|t-1|t])
     """
 
     def __init__(
@@ -286,7 +294,6 @@ class WalkPolicyV1(Policy):
             layout="term",
             term_sizes=FRAME_TERM_SIZES,
         )
-        # Previous policy output (12-D), as emitted — not q targets.
         self._last_action: List[float] = [0.0] * ACTION_DIM
         self._recorder = recorder
         self._settle_t0: Optional[float] = None
@@ -309,7 +316,7 @@ class WalkPolicyV1(Policy):
         return self._recorder
 
     def name(self) -> str:
-        return "walk_v1"
+        return "walk_v2"
 
     def observation_dim(self) -> int:
         return FRAME_DIM
@@ -324,10 +331,9 @@ class WalkPolicyV1(Policy):
         return list(range(B1_JOINT_COUNT))
 
     def load_model(self, model_path: str) -> None:
-        """Load ONNX model (graph includes normalizer + MLP)."""
         path = Path(model_path)
         if not path.is_file():
-            raise FileNotFoundError(f"walk_v1: model not found: {path}")
+            raise FileNotFoundError(f"walk_v2: model not found: {path}")
 
         self._session = ort.InferenceSession(
             str(path), providers=["CPUExecutionProvider"]
@@ -335,7 +341,7 @@ class WalkPolicyV1(Policy):
         inputs = self._session.get_inputs()
         outputs = self._session.get_outputs()
         if not inputs or not outputs:
-            raise RuntimeError(f"walk_v1: ONNX has no inputs/outputs: {path}")
+            raise RuntimeError(f"walk_v2: ONNX has no inputs/outputs: {path}")
         self._input_name = inputs[0].name
         self._output_name = outputs[0].name
 
@@ -343,14 +349,15 @@ class WalkPolicyV1(Policy):
         self, state: RobotState, command: Sequence[float]
     ) -> Observation:
         if len(state.q) != B1_JOINT_COUNT or len(state.dq) != B1_JOINT_COUNT:
-            raise ValueError("walk_v1: RobotState q/dq size mismatch")
+            raise ValueError("walk_v2: RobotState q/dq size mismatch")
 
         cmd = [float(x) for x in command[:FRAME_COMMAND]]
         while len(cmd) < FRAME_COMMAND:
             cmd.append(0.0)
 
-        joint_pos_rel = joint_pos_to_relative(state.q)
-        joint_vel = np.asarray(state.dq, dtype=np.float64)
+        joint_pos_all = joint_pos_to_relative(state.q)
+        joint_pos_rel = joint_pos_all[OBS_BODY_JOINTS]
+        joint_vel = np.asarray(state.dq, dtype=np.float64)[OBS_BODY_JOINTS]
 
         gyro = np.zeros(FRAME_ANG_VEL, dtype=np.float64)
         gyro[: min(FRAME_ANG_VEL, len(state.imu.gyro))] = state.imu.gyro[
@@ -360,7 +367,6 @@ class WalkPolicyV1(Policy):
         grav[: min(FRAME_PROJ_GRAV, len(state.projected_gravity))] = (
             state.projected_gravity[:FRAME_PROJ_GRAV]
         )
-        # Relative action matching last clamped command (not raw model emit).
         last_a = np.asarray(self._last_action, dtype=np.float64)
         cmd_np = np.zeros(FRAME_COMMAND, dtype=np.float64)
         cmd_np[: len(cmd)] = cmd
@@ -370,7 +376,7 @@ class WalkPolicyV1(Policy):
         )
         if data.shape != (FRAME_DIM,):
             raise ValueError(
-                f"walk_v1: built frame dim {data.size} != FRAME_DIM {FRAME_DIM}"
+                f"walk_v2: built frame dim {data.size} != FRAME_DIM {FRAME_DIM}"
             )
         return Observation(data=data.tolist())
 
@@ -381,7 +387,7 @@ class WalkPolicyV1(Policy):
         if self._settle_t0 is None:
             self._settle_t0 = now
             print(
-                f"[walk_v1] settling to DEFAULT_JOINT_POS for "
+                f"[walk_v2] settling to DEFAULT_JOINT_POS for "
                 f"{self._settle_s:.1f}s..."
             )
 
@@ -389,16 +395,15 @@ class WalkPolicyV1(Policy):
             return default_pose_action()
 
         if not self._rl_started:
-            # Fresh history / last_action once pose settle finishes.
             self._history.reset()
             self._last_action = [0.0] * ACTION_DIM
             self._rl_started = True
-            print("[walk_v1] settle done — starting RL walk")
+            print("[walk_v2] settle done — starting RL walk")
 
         model_input = self._history.push(obs.data)
         if len(model_input) != self.input_dim():
             raise ValueError(
-                f"walk_v1: stacked dim {len(model_input)} != "
+                f"walk_v2: stacked dim {len(model_input)} != "
                 f"input_dim {self.input_dim()}"
             )
 
@@ -406,7 +411,7 @@ class WalkPolicyV1(Policy):
             self._recorder.record(model_input)
 
         if self._session is None:
-            raise RuntimeError("walk_v1: model not loaded; call load_model()")
+            raise RuntimeError("walk_v2: model not loaded; call load_model()")
 
         x = np.asarray(model_input, dtype=np.float32).reshape(1, -1)
         y = self._session.run(
@@ -416,19 +421,17 @@ class WalkPolicyV1(Policy):
 
         if len(action) != ACTION_DIM:
             raise ValueError(
-                f"walk_v1: action dim {len(action)} != ACTION_DIM {ACTION_DIM}"
+                f"walk_v2: action dim {len(action)} != ACTION_DIM {ACTION_DIM}"
             )
 
-        # Absolute targets: scale + offset, then clamp for the robot.
         q_abs = action_to_absolute(action, self._action_scale)
         q_abs = np.clip(q_abs, Q_ABS_LIMITS[:, 0], Q_ABS_LIMITS[:, 1])
-        # Feedback the clamped command as relative action (matches what was sent).
         scale = self._action_scale if self._action_scale != 0.0 else 1.0
         self._last_action = [
             float(a) for a in (q_abs - DEFAULT_LEG_POS) / scale
         ]
         print(
-            "[walk_v1] ankle targets (rad): "
+            "[walk_v2] ankle targets (rad): "
             f"L_pitch={q_abs[4]:.4f} L_roll={q_abs[5]:.4f} "
             f"R_pitch={q_abs[10]:.4f} R_roll={q_abs[11]:.4f}"
         )

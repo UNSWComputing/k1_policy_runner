@@ -28,15 +28,26 @@ from policy_runner.policy import (
     Policy,
     SineArmPolicy,
     SineKneePolicy,
+    StepAnklePolicy,
     StepArmPolicy,
     WalkPolicy,
     WalkPolicyV1,
+    WalkPolicyV2,
     merge_actions,
 )
 from policy_runner.robot import RobotBridge, spin_bridge_in_background
 
 CONTROL_DT = 0.02  # 100 Hz
-AVAILABLE = ("sine_arm", "step_arm", "sine_knee", "hold_lower", "walk", "walk_v1")
+AVAILABLE = (
+    "sine_arm",
+    "step_arm",
+    "step_ankle",
+    "sine_knee",
+    "hold_lower",
+    "walk",
+    "walk_v1",
+    "walk_v2",
+)
 
 
 def make_policy(
@@ -48,6 +59,8 @@ def make_policy(
         return SineArmPolicy(CONTROL_DT)
     if name == "step_arm":
         return StepArmPolicy(CONTROL_DT)
+    if name == "step_ankle":
+        return StepAnklePolicy(CONTROL_DT)
     if name == "sine_knee":
         return SineKneePolicy(CONTROL_DT)
     if name == "hold_lower":
@@ -56,6 +69,8 @@ def make_policy(
         return WalkPolicy(CONTROL_DT)
     if name == "walk_v1":
         return WalkPolicyV1(CONTROL_DT, model_path=model_path, recorder=recorder)
+    if name == "walk_v2":
+        return WalkPolicyV2(CONTROL_DT, model_path=model_path)
     return None
 
 
@@ -92,9 +107,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Output LowCmd topic (default: /joint_ctrl)",
     )
     parser.add_argument(
+        "--cmd-vel-topic",
+        default="/cmd_vel",
+        help="Twist topic for walk velocity [vx, vy, yaw] (default: /cmd_vel)",
+    )
+    parser.add_argument(
         "--model-path",
         default=None,
-        help="ONNX model for walk_v1 (default: <repo>/k1_v24_model_100800.onnx)",
+        help="ONNX model for walk_v1 / walk_v2",
     )
     parser.add_argument(
         "--record-obs",
@@ -141,6 +161,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         joint_state_topic=args.joint_states_topic,
         joint_ctrl_topic=args.joint_ctrl_topic,
         low_state_topic=args.low_state_topic,
+        cmd_vel_topic=args.cmd_vel_topic,
     )
     spin_bridge_in_background(bridge)
 
@@ -152,6 +173,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             f"history_len={policy.history_len()}  "
             f"controlled_joints={len(policy.controlled_joints())}"
         )
+    print(
+        f"cmd_vel topic: {args.cmd_vel_topic} → command [vx, vy, yaw_rate]"
+    )
     print("Waiting for /joint_states and /low_state (IMU)...")
     ChannelFactory.Instance().Init(0)
     client = B1LocoClient()
@@ -170,12 +194,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             policy.reset()
         print(f"Running {len(policies)} polic(y/ies) in parallel. Ctrl+C to stop.")
 
-        command: list[float] = []
         loop_count = 0
         freq_t0 = time.perf_counter()
 
         while rclpy.ok():
             state = bridge.latest_state()
+            command = bridge.latest_command()
             actions = [
                 policy.infer(policy.build_observation(state, command))
                 for policy in policies
@@ -185,7 +209,11 @@ def main(argv: Optional[list[str]] = None) -> int:
 
             elapsed = time.perf_counter() - freq_t0
             if elapsed >= 1.0:
-                print(f"control loop: {loop_count / elapsed:.1f} Hz")
+                print(
+                    f"control loop: {loop_count / elapsed:.1f} Hz  "
+                    f"cmd_vel=[{command[0]:.2f}, {command[1]:.2f}, "
+                    f"{command[2]:.2f}]"
+                )
                 loop_count = 0
                 freq_t0 = time.perf_counter()
             time.sleep(CONTROL_DT)

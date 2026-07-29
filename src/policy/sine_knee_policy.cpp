@@ -13,9 +13,13 @@ namespace {
 constexpr int kLeftKneePitch = joint::kLeftKneePitch;
 constexpr int kRightKneePitch = joint::kRightKneePitch;
 
-constexpr float kKneeBase = 0.4f;
-constexpr float kKneeAmp = 0.2f;
-constexpr float kFreqHz = 0.5f;
+// Knee pitch limits: 0° … 133°.
+constexpr float kKneeMin = 0.f;
+constexpr float kKneeMax = 133.f * 3.14159265f / 180.f;
+constexpr float kKneeBase = 0.5f * (kKneeMin + kKneeMax);
+constexpr float kKneeAmp = 0.5f * (kKneeMax - kKneeMin);
+constexpr float kPeriodS = 10.f;  // slow so the actuator can track
+constexpr float kFreqHz = 1.f / kPeriodS;
 
 }  // namespace
 

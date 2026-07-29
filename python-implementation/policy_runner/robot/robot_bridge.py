@@ -1,11 +1,14 @@
-"""ROS2 robot bridge: /joint_states + /low_state (IMU) in, /joint_ctrl out."""
+"""ROS2 robot bridge: /joint_states + /low_state (IMU) in, /joint_ctrl out,
+optional /cmd_vel for walk velocity command.
+"""
 
 from __future__ import annotations
 
 import threading
-from typing import Sequence
+from typing import List, Sequence
 
 import rclpy
+from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
@@ -35,6 +38,7 @@ class RobotBridge(Node):
 
     Subscribes: /joint_states (sensor_msgs/JointState)
                 /low_state    (booster_interface/msg/LowState) for IMU
+                /cmd_vel      (geometry_msgs/Twist) → [vx, vy, ωz]
     Publishes:  /joint_ctrl   (booster_interface/msg/LowCmd)
     """
 
@@ -43,6 +47,7 @@ class RobotBridge(Node):
         joint_state_topic: str = "/joint_states",
         joint_ctrl_topic: str = "/joint_ctrl",
         low_state_topic: str = "/low_state",
+        cmd_vel_topic: str = "/cmd_vel",
     ) -> None:
         super().__init__("policy_runner")
 
@@ -57,6 +62,10 @@ class RobotBridge(Node):
         self._has_imu = False
         self._name_to_index = joint_name_to_index()
 
+        # Walk policy twist command: [vx, vy, yaw_rate].
+        self._cmd_lock = threading.Lock()
+        self._latest_command: List[float] = [0.0, 0.0, 0.0]
+
         self._pub = self.create_publisher(LowCmd, joint_ctrl_topic, 10)
         self._joint_sub = self.create_subscription(
             JointState, joint_state_topic, self._on_joint_state, 10
@@ -64,10 +73,13 @@ class RobotBridge(Node):
         self._low_state_sub = self.create_subscription(
             LowState, low_state_topic, self._on_low_state, 10
         )
+        self._cmd_vel_sub = self.create_subscription(
+            Twist, cmd_vel_topic, self._on_cmd_vel, 10
+        )
 
         self.get_logger().info(
-            f"Subscribed to {joint_state_topic} and {low_state_topic}, "
-            f"publishing to {joint_ctrl_topic}"
+            f"Subscribed to {joint_state_topic}, {low_state_topic}, "
+            f"{cmd_vel_topic}; publishing to {joint_ctrl_topic}"
         )
 
     def has_state(self) -> bool:
@@ -87,10 +99,15 @@ class RobotBridge(Node):
                 projected_gravity=list(self._latest_state.projected_gravity),
             )
 
+    def latest_command(self) -> List[float]:
+        """Latest [vx, vy, ωz] from /cmd_vel (defaults to zeros)."""
+        with self._cmd_lock:
+            return list(self._latest_command)
+
     def publish_action(self, action: Action) -> None:
         """Write sparse Action onto a full LowCmd. Uncontrolled joints get weight=0."""
         msg = LowCmd()
-        msg.cmd_type = getattr(LowCmd, "CMD_TYPE_PARALLEL", 0)
+        msg.cmd_type = getattr(LowCmd, "CMD_TYPE_SERIAL", 1)
         msg.motor_cmd = [MotorCmd() for _ in range(B1_JOINT_COUNT)]
 
         for m in msg.motor_cmd:
@@ -114,6 +131,14 @@ class RobotBridge(Node):
             m.weight = float(jc.weight)
 
         self._pub.publish(msg)
+
+    def _on_cmd_vel(self, msg: Twist) -> None:
+        with self._cmd_lock:
+            self._latest_command = [
+                float(msg.linear.x),
+                float(msg.linear.y),
+                float(msg.angular.z),
+            ]
 
     def _on_joint_state(self, msg: JointState) -> None:
         q = [0.0] * B1_JOINT_COUNT

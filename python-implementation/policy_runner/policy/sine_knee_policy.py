@@ -19,9 +19,13 @@ from policy_runner.types import (
 LEFT_KNEE_PITCH = int(JointIndex.LEFT_KNEE_PITCH)
 RIGHT_KNEE_PITCH = int(JointIndex.RIGHT_KNEE_PITCH)
 
-_KNEE_BASE = 0.4
-_KNEE_AMP = 0.2
-_FREQ_HZ = 0.5
+# Knee pitch limits: 0° … 133° (absolute rad).
+_KNEE_MIN = math.radians(0.0)
+_KNEE_MAX = math.radians(133.0)
+_KNEE_BASE = 0.5 * (_KNEE_MIN + _KNEE_MAX)  # mid ≈ 66.5°
+_KNEE_AMP = 0.5 * (_KNEE_MAX - _KNEE_MIN)  # ±66.5°
+_PERIOD_S = 5.0 
+_FREQ_HZ = 1.0 / _PERIOD_S
 
 
 class SineKneePolicy(Policy):
