@@ -77,28 +77,28 @@ WALK_KP = {
     int(JointIndex.LEFT_HIP_ROLL): 80.0,
     int(JointIndex.LEFT_HIP_YAW): 80.0,
     int(JointIndex.LEFT_KNEE_PITCH): 80.0,
-    int(JointIndex.LEFT_ANKLE_PITCH): 25.0,
-    int(JointIndex.LEFT_ANKLE_ROLL): 25.0,
+    int(JointIndex.LEFT_ANKLE_PITCH): 20.0,
+    int(JointIndex.LEFT_ANKLE_ROLL): 20.0,
     int(JointIndex.RIGHT_HIP_PITCH): 80.0,
     int(JointIndex.RIGHT_HIP_ROLL): 80.0,
     int(JointIndex.RIGHT_HIP_YAW): 80.0,
     int(JointIndex.RIGHT_KNEE_PITCH): 80.0,
-    int(JointIndex.RIGHT_ANKLE_PITCH): 25.0,
-    int(JointIndex.RIGHT_ANKLE_ROLL): 25.0,
+    int(JointIndex.RIGHT_ANKLE_PITCH): 20.0,
+    int(JointIndex.RIGHT_ANKLE_ROLL): 20.0,
 }
 WALK_KD = {
     int(JointIndex.LEFT_HIP_PITCH): 4.0,
     int(JointIndex.LEFT_HIP_ROLL): 4.0,
     int(JointIndex.LEFT_HIP_YAW): 4.0,
     int(JointIndex.LEFT_KNEE_PITCH): 4.0,
-    int(JointIndex.LEFT_ANKLE_PITCH): 2.0,
-    int(JointIndex.LEFT_ANKLE_ROLL): 2.0,
+    int(JointIndex.LEFT_ANKLE_PITCH): 2.5,
+    int(JointIndex.LEFT_ANKLE_ROLL): 2.5,
     int(JointIndex.RIGHT_HIP_PITCH): 4.0,
     int(JointIndex.RIGHT_HIP_ROLL): 4.0,
     int(JointIndex.RIGHT_HIP_YAW): 4.0,
     int(JointIndex.RIGHT_KNEE_PITCH): 4.0,
-    int(JointIndex.RIGHT_ANKLE_PITCH): 2.0,
-    int(JointIndex.RIGHT_ANKLE_ROLL): 2.0,
+    int(JointIndex.RIGHT_ANKLE_PITCH): 2.5,
+    int(JointIndex.RIGHT_ANKLE_ROLL): 2.5,
 }
 
 ACTION_DIM = 12
@@ -196,6 +196,10 @@ DEFAULT_JOINT_POS = np.asarray(
    ],
    dtype=np.float64,
 )
+
+
+
+
 assert DEFAULT_JOINT_POS.shape == (B1_JOINT_COUNT,)
 
 DEFAULT_LEG_POS = DEFAULT_JOINT_POS[LEG_JOINTS].copy()
@@ -266,8 +270,8 @@ HISTORY_LEN = 3
 MODEL_INPUT_DIM = FRAME_DIM * HISTORY_LEN  # 183
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_MODEL_PATH = _REPO_ROOT / "v2_models" / "model_31150.onnx"
 
+DEFAULT_MODEL_PATH = _REPO_ROOT / "v2_models" / "robocup_s2r_v40p.onnx"
 
 class WalkPolicyV2(Policy):
     """

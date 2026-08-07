@@ -26,13 +26,17 @@ from policy_runner.obs_record import ModelInputRecorder
 from policy_runner.policy import (
     HoldLowerBodyPolicy,
     Policy,
+    SineAnklePolicy,
     SineArmPolicy,
+    SineHipPolicy,
     SineKneePolicy,
     StepAnklePolicy,
     StepArmPolicy,
     WalkPolicy,
     WalkPolicyV1,
     WalkPolicyV2,
+    WalkPolicyV3,
+    WalkPolicyV4,
     merge_actions,
 )
 from policy_runner.robot import RobotBridge, spin_bridge_in_background
@@ -40,6 +44,8 @@ from policy_runner.robot import RobotBridge, spin_bridge_in_background
 CONTROL_DT = 0.02  # 100 Hz
 AVAILABLE = (
     "sine_arm",
+    "sine_hip",
+    "sine_ankle",
     "step_arm",
     "step_ankle",
     "sine_knee",
@@ -47,6 +53,8 @@ AVAILABLE = (
     "walk",
     "walk_v1",
     "walk_v2",
+    "walk_v3",
+    "walk_v4",
 )
 
 
@@ -57,6 +65,10 @@ def make_policy(
 ) -> Optional[Policy]:
     if name == "sine_arm":
         return SineArmPolicy(CONTROL_DT)
+    if name == "sine_hip":
+        return SineHipPolicy(CONTROL_DT)
+    if name == "sine_ankle":
+        return SineAnklePolicy(CONTROL_DT)
     if name == "step_arm":
         return StepArmPolicy(CONTROL_DT)
     if name == "step_ankle":
@@ -71,6 +83,10 @@ def make_policy(
         return WalkPolicyV1(CONTROL_DT, model_path=model_path, recorder=recorder)
     if name == "walk_v2":
         return WalkPolicyV2(CONTROL_DT, model_path=model_path)
+    if name == "walk_v3":
+        return WalkPolicyV3(CONTROL_DT, model_path=model_path)
+    if name == "walk_v4":
+        return WalkPolicyV4(CONTROL_DT, model_path=model_path)
     return None
 
 
@@ -114,7 +130,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument(
         "--model-path",
         default=None,
-        help="ONNX model for walk_v1 / walk_v2",
+        help="ONNX model for walk_v1 / walk_v2 / walk_v3 / walk_v4",
     )
     parser.add_argument(
         "--record-obs",

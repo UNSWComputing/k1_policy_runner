@@ -106,6 +106,7 @@ python3 joint_record.py runs/walk_obs.npz --plot --save runs/walk --no-show
 | `walk` | Stub history example | Lower body (10–21) |
 | `walk_v1` | ONNX walk: settle to default pose, then RL (legs) + hold upper body (65×3→12) | Full body (0–21) |
 | `walk_v2` | ONNX walk: same pattern, no head in obs (61×3→12) | Full body (0–21) |
+| `walk_v3` | ONNX walk: v2 + gait_clock (61×3+2→12), new default pose | Full body (0–21) |
 | `parameter_walk` | Gym K1 ParameterWalk TorchScript/ONNX (54→12) | Lower body (10–21) |
 
 Policies emit **sparse** actions. Pass several comma-separated names to run them in parallel; actions are merged by joint index (later policy wins on conflicts). Unowned joints stay `weight = 0`.

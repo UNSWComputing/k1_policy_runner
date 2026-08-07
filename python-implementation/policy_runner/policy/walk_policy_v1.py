@@ -80,28 +80,28 @@ WALK_KP = {
     int(JointIndex.LEFT_HIP_ROLL): 80.0,
     int(JointIndex.LEFT_HIP_YAW): 80.0,
     int(JointIndex.LEFT_KNEE_PITCH): 80.0,
-    int(JointIndex.LEFT_ANKLE_PITCH): 25.0,
-    int(JointIndex.LEFT_ANKLE_ROLL): 25.0,
+    int(JointIndex.LEFT_ANKLE_PITCH): 22.0,
+    int(JointIndex.LEFT_ANKLE_ROLL): 22.0,
     int(JointIndex.RIGHT_HIP_PITCH): 80.0,
     int(JointIndex.RIGHT_HIP_ROLL): 80.0,
     int(JointIndex.RIGHT_HIP_YAW): 80.0,
     int(JointIndex.RIGHT_KNEE_PITCH): 80.0,
-    int(JointIndex.RIGHT_ANKLE_PITCH): 25.0,
-    int(JointIndex.RIGHT_ANKLE_ROLL): 25.0,
+    int(JointIndex.RIGHT_ANKLE_PITCH): 22.0,
+    int(JointIndex.RIGHT_ANKLE_ROLL): 22.0,
 }
 WALK_KD = {
     int(JointIndex.LEFT_HIP_PITCH): 4.0,
     int(JointIndex.LEFT_HIP_ROLL): 4.0,
     int(JointIndex.LEFT_HIP_YAW): 4.0,
     int(JointIndex.LEFT_KNEE_PITCH): 4.0,
-    int(JointIndex.LEFT_ANKLE_PITCH): 2.0, # 1.0,
-    int(JointIndex.LEFT_ANKLE_ROLL): 2.0, # 1.0,
+    int(JointIndex.LEFT_ANKLE_PITCH): 2.2, # 1.0,
+    int(JointIndex.LEFT_ANKLE_ROLL): 2.2, # 1.0,
     int(JointIndex.RIGHT_HIP_PITCH): 4.0,
     int(JointIndex.RIGHT_HIP_ROLL): 4.0,
     int(JointIndex.RIGHT_HIP_YAW): 4.0,
     int(JointIndex.RIGHT_KNEE_PITCH): 4.0,
-    int(JointIndex.RIGHT_ANKLE_PITCH): 2.0, # 1.0,
-    int(JointIndex.RIGHT_ANKLE_ROLL): 2.0, # 1.0,
+    int(JointIndex.RIGHT_ANKLE_PITCH): 2.2, # 1.0,
+    int(JointIndex.RIGHT_ANKLE_ROLL): 2.2, # 1.0,
 }
 WALK_EFFORT_LIMIT = {
     int(JointIndex.LEFT_HIP_PITCH): 45.0,
@@ -239,7 +239,7 @@ DEFAULT_SETTLE_S = 0.5
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_MODEL_PATH = _REPO_ROOT / "k1_v28_model_116000.onnx"
-# DEFAULT_MODEL_PATH = _REPO_ROOT / "k1_v24_model_105600.onnx"
+DEFAULT_MODEL_PATH = _REPO_ROOT / "v1_late.onnx"
 
 
 def joint_pos_to_relative(q_abs: Sequence[float]) -> np.ndarray:

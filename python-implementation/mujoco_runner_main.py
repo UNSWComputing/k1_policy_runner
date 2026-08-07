@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import List, Optional
@@ -24,12 +25,16 @@ import mujoco.viewer
 from policy_runner.policy import (
     HoldLowerBodyPolicy,
     Policy,
+    SineAnklePolicy,
     SineArmPolicy,
+    SineHipPolicy,
     SineKneePolicy,
     StepArmPolicy,
     WalkPolicy,
     WalkPolicyV1,
     WalkPolicyV2,
+    WalkPolicyV3,
+    WalkPolicyV4,
     merge_actions,
 )
 from policy_runner.sim import DEFAULT_MJCF, MujocoBridge
@@ -43,12 +48,16 @@ except ImportError:  # pragma: no cover
 CONTROL_DT = 0.02  # 50 Hz — matches train decimation (0.002 * 10)
 AVAILABLE = (
     "sine_arm",
+    "sine_hip",
+    "sine_ankle",
     "step_arm",
     "sine_knee",
     "hold_lower",
     "walk",
     "walk_v1",
     "walk_v2",
+    "walk_v3",
+    "walk_v4",
     "parameter_walk",
 )
 
@@ -61,6 +70,10 @@ def make_policy(
 ) -> Optional[Policy]:
     if name == "sine_arm":
         return SineArmPolicy(CONTROL_DT)
+    if name == "sine_hip":
+        return SineHipPolicy(CONTROL_DT)
+    if name == "sine_ankle":
+        return SineAnklePolicy(CONTROL_DT)
     if name == "step_arm":
         return StepArmPolicy(CONTROL_DT)
     if name == "sine_knee":
@@ -79,6 +92,14 @@ def make_policy(
         if WalkPolicyV2 is None:
             raise RuntimeError("walk_v2 unavailable (install onnxruntime)")
         return WalkPolicyV2(CONTROL_DT, model_path=model_path)
+    if name == "walk_v3":
+        if WalkPolicyV3 is None:
+            raise RuntimeError("walk_v3 unavailable (install onnxruntime)")
+        return WalkPolicyV3(CONTROL_DT, model_path=model_path)
+    if name == "walk_v4":
+        if WalkPolicyV4 is None:
+            raise RuntimeError("walk_v4 unavailable (install onnxruntime)")
+        return WalkPolicyV4(CONTROL_DT, model_path=model_path)
     if name == "parameter_walk":
         if ParameterWalkPolicy is None:
             raise RuntimeError("parameter_walk policy not available")
@@ -93,6 +114,74 @@ def make_policy(
 
 def parse_policy_list(csv: str) -> List[str]:
     return [p.strip() for p in csv.split(",") if p.strip()]
+
+
+def parse_cmd_line(line: str) -> Optional[list[float]]:
+    """Parse 'vx,vy,yaw' or 'vx vy yaw'. 'stop' / '0' → zeros. None if empty/invalid."""
+    s = line.strip()
+    if not s or s.startswith("#"):
+        return None
+    low = s.lower()
+    if low in ("stop", "q", "quit"):
+        return [0.0, 0.0, 0.0]
+    if "," in s:
+        parts = [p.strip() for p in s.split(",") if p.strip() != ""]
+    else:
+        parts = s.split()
+    if not parts:
+        return None
+    try:
+        return [float(x) for x in parts]
+    except ValueError:
+        return None
+
+
+class StdinCmdReader:
+    """Background thread: read cmd_vel lines from stdin into a shared list."""
+
+    def __init__(self, command: list[float]) -> None:
+        self._lock = threading.Lock()
+        self._command = list(command)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def get(self) -> list[float]:
+        with self._lock:
+            return list(self._command)
+
+    def _run(self) -> None:
+        print(
+            "stdin cmd_vel: type vx,vy,yaw (or spaces) + Enter; "
+            "'stop' → 0,0,0",
+            flush=True,
+        )
+        while not self._stop.is_set():
+            try:
+                line = sys.stdin.readline()
+            except Exception:
+                break
+            if line == "":
+                break  # EOF
+            parsed = parse_cmd_line(line)
+            if parsed is None:
+                print(
+                    f"stdin: ignore {line.strip()!r} "
+                    "(want vx,vy,yaw e.g. 0.3,0,0)",
+                    flush=True,
+                )
+                continue
+            with self._lock:
+                self._command = parsed
+            print(
+                f"cmd_vel ← [{', '.join(f'{x:.3f}' for x in parsed)}]",
+                flush=True,
+            )
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -111,7 +200,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument(
         "--cmd",
         default=None,
-        help="Comma-separated ParameterWalk cmds (up to 10)",
+        help="Initial command: walk vx,vy,yaw or ParameterWalk (up to 10)",
+    )
+    parser.add_argument(
+        "--stdin-cmd",
+        action="store_true",
+        help="Read live cmd_vel updates from stdin (vx,vy,yaw per line)",
     )
     parser.add_argument(
         "--gait-freq",
@@ -189,7 +283,17 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # Match MuJoCo hold/init pose to the policy's obs default when available.
     default_q = None
-    if any(p.name() == "walk_v2" for p in policies):
+    if any(p.name() == "walk_v4" for p in policies):
+        from policy_runner.policy.walk_policy_v4 import DEFAULT_JOINT_POS
+
+        default_q = DEFAULT_JOINT_POS
+        print("MuJoCo default_q ← walk_v4 DEFAULT_JOINT_POS")
+    elif any(p.name() == "walk_v3" for p in policies):
+        from policy_runner.policy.walk_policy_v3 import DEFAULT_JOINT_POS
+
+        default_q = DEFAULT_JOINT_POS
+        print("MuJoCo default_q ← walk_v3 DEFAULT_JOINT_POS")
+    elif any(p.name() == "walk_v2" for p in policies):
         from policy_runner.policy.walk_policy_v2 import DEFAULT_JOINT_POS
 
         default_q = DEFAULT_JOINT_POS
@@ -236,7 +340,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             f"(video={'off' if args.no_video else 'on'})"
         )
 
-    command: list[float] = list(cmd) if cmd is not None else []
+    command: list[float] = list(cmd) if cmd is not None else [0.0, 0.0, 0.0]
+    stdin_cmd: Optional[StdinCmdReader] = None
+    if args.stdin_cmd:
+        stdin_cmd = StdinCmdReader(command)
+        stdin_cmd.start()
+
     wall_t0 = time.perf_counter()
     sim_t = 0.0
     steps = 0
@@ -245,7 +354,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
 
     def _tick() -> None:
-        nonlocal steps, sim_t
+        nonlocal steps, sim_t, command
+        if stdin_cmd is not None:
+            command = stdin_cmd.get()
         state = bridge.latest_state()
         observations = [
             policy.build_observation(state, command) for policy in policies
@@ -284,6 +395,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
+        if stdin_cmd is not None:
+            stdin_cmd.stop()
         if recorder is not None:
             info = recorder.close()
             print(f"Saved recording: {info['npz']}")
