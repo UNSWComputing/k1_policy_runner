@@ -86,38 +86,39 @@ WALK_KP = {
     int(JointIndex.LEFT_HIP_ROLL): 80.0,
     int(JointIndex.LEFT_HIP_YAW): 80.0,
     int(JointIndex.LEFT_KNEE_PITCH): 80.0,
-    int(JointIndex.LEFT_ANKLE_PITCH): 25.0,
-    int(JointIndex.LEFT_ANKLE_ROLL): 25.0,
+    # Softer ankles: parallel motors hold less continuous torque when standing.
+    int(JointIndex.LEFT_ANKLE_PITCH): 17.0,
+    int(JointIndex.LEFT_ANKLE_ROLL): 17.0,
     int(JointIndex.RIGHT_HIP_PITCH): 80.0,
     int(JointIndex.RIGHT_HIP_ROLL): 80.0,
     int(JointIndex.RIGHT_HIP_YAW): 80.0,
     int(JointIndex.RIGHT_KNEE_PITCH): 80.0,
-    int(JointIndex.RIGHT_ANKLE_PITCH): 25.0,
-    int(JointIndex.RIGHT_ANKLE_ROLL): 25.0,
+    int(JointIndex.RIGHT_ANKLE_PITCH): 17.0,
+    int(JointIndex.RIGHT_ANKLE_ROLL): 17.0,
 }
 WALK_KD = {
     int(JointIndex.LEFT_HIP_PITCH): 4.0,
     int(JointIndex.LEFT_HIP_ROLL): 4.0,
     int(JointIndex.LEFT_HIP_YAW): 4.0,
     int(JointIndex.LEFT_KNEE_PITCH): 4.0,
-    int(JointIndex.LEFT_ANKLE_PITCH): 3.0,
-    int(JointIndex.LEFT_ANKLE_ROLL): 3.0,
+    int(JointIndex.LEFT_ANKLE_PITCH): 2.5,
+    int(JointIndex.LEFT_ANKLE_ROLL): 2.5,
     int(JointIndex.RIGHT_HIP_PITCH): 4.0,
     int(JointIndex.RIGHT_HIP_ROLL): 4.0,
     int(JointIndex.RIGHT_HIP_YAW): 4.0,
     int(JointIndex.RIGHT_KNEE_PITCH): 4.0,
-    int(JointIndex.RIGHT_ANKLE_PITCH): 3.0,
-    int(JointIndex.RIGHT_ANKLE_ROLL): 3.0,
+    int(JointIndex.RIGHT_ANKLE_PITCH): 2.5,
+    int(JointIndex.RIGHT_ANKLE_ROLL): 2.5,
 }
 
 ACTION_DIM = 20
 ACTION_CLIP = 1.0  # training clip_actions
 
-DEFAULT_SETTLE_S = 0.2
+DEFAULT_SETTLE_S = 0.4
 
 # Gait cycle (φ ∈ [0,1)). Still → f=0 and obs zeros.
 GAIT_STILL_THRESHOLD = 0.05
-GAIT_FREQUENCY_HZ = 1.5  # in [1.0, 2.0] while walking
+GAIT_FREQUENCY_HZ = 1.6 # in [1.0, 2.0] while walking
 
 
 def make_walk_joint_cmd(index: int, q: float) -> JointCommand:
@@ -226,7 +227,7 @@ FRAME_DIM = (
 assert FRAME_DIM == 75
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_MODEL_PATH = _REPO_ROOT / "v4_models" / "model_31000 (1).onnx"
+DEFAULT_MODEL_PATH = _REPO_ROOT / "v4_models" / "model_31500.onnx"
 
 
 class WalkPolicyV4(Policy):
