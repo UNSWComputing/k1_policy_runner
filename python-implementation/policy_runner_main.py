@@ -41,7 +41,7 @@ from policy_runner.policy import (
 )
 from policy_runner.robot import RobotBridge, spin_bridge_in_background
 
-CONTROL_DT = 0.02  # 100 Hz
+CONTROL_DT = 0.02  # 50 Hz target control period
 AVAILABLE = (
     "sine_arm",
     "sine_hip",
@@ -212,6 +212,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         loop_count = 0
         freq_t0 = time.perf_counter()
+        next_tick = time.perf_counter()
 
         while rclpy.ok():
             state = bridge.latest_state()
@@ -232,7 +233,15 @@ def main(argv: Optional[list[str]] = None) -> int:
                 )
                 loop_count = 0
                 freq_t0 = time.perf_counter()
-            time.sleep(CONTROL_DT)
+
+            # Sleep only the remainder of this period (work + sleep ≈ CONTROL_DT).
+            next_tick += CONTROL_DT
+            remaining = next_tick - time.perf_counter()
+            if remaining > 0:
+                time.sleep(remaining)
+            elif remaining < -CONTROL_DT:
+                # Fell more than one period behind; resync instead of burst catch-up.
+                next_tick = time.perf_counter()
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
