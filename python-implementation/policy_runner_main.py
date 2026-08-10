@@ -37,6 +37,7 @@ from policy_runner.policy import (
     WalkPolicyV2,
     WalkPolicyV3,
     WalkPolicyV4,
+    WalkPolicyV5,
     merge_actions,
 )
 from policy_runner.robot import RobotBridge, spin_bridge_in_background
@@ -55,6 +56,7 @@ AVAILABLE = (
     "walk_v2",
     "walk_v3",
     "walk_v4",
+    "walk_v5",
 )
 
 
@@ -87,6 +89,10 @@ def make_policy(
         return WalkPolicyV3(CONTROL_DT, model_path=model_path)
     if name == "walk_v4":
         return WalkPolicyV4(CONTROL_DT, model_path=model_path)
+    if name == "walk_v5":
+        if WalkPolicyV5 is None:
+            raise RuntimeError("walk_v5 unavailable (install onnxruntime)")
+        return WalkPolicyV5(CONTROL_DT, model_path=model_path)
     return None
 
 
@@ -130,7 +136,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument(
         "--model-path",
         default=None,
-        help="ONNX model for walk_v1 / walk_v2 / walk_v3 / walk_v4",
+        help="ONNX model for walk_v1 / walk_v2 / walk_v3 / walk_v4 / walk_v5",
     )
     parser.add_argument(
         "--record-obs",

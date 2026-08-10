@@ -38,6 +38,11 @@ try:
 except ImportError:  # pragma: no cover
     WalkPolicyV4 = None  # type: ignore
 
+try:
+    from policy_runner.policy.walk_policy_v5 import WalkPolicyV5
+except ImportError:  # pragma: no cover
+    WalkPolicyV5 = None  # type: ignore
+
 __all__ = [
     "Policy",
     "HoldLowerBodyPolicy",
@@ -53,5 +58,6 @@ __all__ = [
     "WalkPolicyV2",
     "WalkPolicyV3",
     "WalkPolicyV4",
+    "WalkPolicyV5",
     "merge_actions",
 ]
