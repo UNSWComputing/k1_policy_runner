@@ -11,6 +11,9 @@ default_joint_pos and action_scale from ONNX metadata.
 Leg PD uses v4 WALK_KP/KD (metadata joint_stiffness/damping is read then
 overridden for walk joints). Arms use default joint_gains PD.
 Head not policy-controlled (sparse 20-joint action).
+
+Sent q is clipped to physical joint ranges (k1_22dof_scene.xml). last_action
+is inverted from that clipped q, so an out-of-range raw action is not fed back.
 """
 
 from __future__ import annotations
@@ -43,20 +46,51 @@ assert HEAD_JOINTS.shape == (2,)
 
 ACTION_DIM = 20
 
+# Physical q limits [lo, hi] in JointIndex order (assets/k1_22dof_scene.xml).
+Q_ABS_LIMITS = np.asarray(
+    [
+        [-1.000, 1.000],  # Head_Yaw
+        [-0.349, 0.855],  # Head_Pitch
+        [-3.316, 1.220],  # Left_Shoulder_Pitch
+        [-1.740, 1.570],  # Left_Shoulder_Roll
+        [-2.270, 2.270],  # Left_Elbow_Pitch
+        [-2.440, 0.000],  # Left_Elbow_Yaw
+        [-3.316, 1.220],  # Right_Shoulder_Pitch
+        [-1.570, 1.740],  # Right_Shoulder_Roll
+        [-2.270, 2.270],  # Right_Elbow_Pitch
+        [0.000, 2.440],  # Right_Elbow_Yaw
+        [-3.000, 2.210],  # Left_Hip_Pitch
+        [-0.400, 1.570],  # Left_Hip_Roll
+        [-1.000, 1.000],  # Left_Hip_Yaw
+        [0.000, 2.230],  # Left_Knee_Pitch
+        [-0.870, 0.345],  # Left_Ankle_Pitch
+        [-0.345, 0.345],  # Left_Ankle_Roll
+        [-3.000, 2.210],  # Right_Hip_Pitch
+        [-1.570, 0.400],  # Right_Hip_Roll
+        [-1.000, 1.000],  # Right_Hip_Yaw
+        [0.000, 2.230],  # Right_Knee_Pitch
+        [-0.870, 0.345],  # Right_Ankle_Pitch
+        [-0.345, 0.345],  # Right_Ankle_Roll
+    ],
+    dtype=np.float64,
+)
+assert Q_ABS_LIMITS.shape == (B1_JOINT_COUNT, 2)
+
 WALK_KP = {
     int(JointIndex.LEFT_HIP_PITCH): 80.0,
     int(JointIndex.LEFT_HIP_ROLL): 80.0,
     int(JointIndex.LEFT_HIP_YAW): 80.0,
     int(JointIndex.LEFT_KNEE_PITCH): 80.0,
-    int(JointIndex.LEFT_ANKLE_PITCH): 17.0,
-    int(JointIndex.LEFT_ANKLE_ROLL): 17.0,
+    int(JointIndex.LEFT_ANKLE_PITCH): 15.0,
+    int(JointIndex.LEFT_ANKLE_ROLL): 15.0,
     int(JointIndex.RIGHT_HIP_PITCH): 80.0,
     int(JointIndex.RIGHT_HIP_ROLL): 80.0,
     int(JointIndex.RIGHT_HIP_YAW): 80.0,
     int(JointIndex.RIGHT_KNEE_PITCH): 80.0,
-    int(JointIndex.RIGHT_ANKLE_PITCH): 17.0,
-    int(JointIndex.RIGHT_ANKLE_ROLL): 17.0,
+    int(JointIndex.RIGHT_ANKLE_PITCH): 15.0,
+    int(JointIndex.RIGHT_ANKLE_ROLL): 15.0,
 }
+
 WALK_KD = {
     int(JointIndex.LEFT_HIP_PITCH): 4.0,
     int(JointIndex.LEFT_HIP_ROLL): 4.0,
@@ -65,6 +99,37 @@ WALK_KD = {
     int(JointIndex.LEFT_ANKLE_PITCH): 2.5,
     int(JointIndex.LEFT_ANKLE_ROLL): 2.5,
     int(JointIndex.RIGHT_HIP_PITCH): 4.0,
+    int(JointIndex.RIGHT_HIP_ROLL): 4.0,
+    int(JointIndex.RIGHT_HIP_YAW): 4.0,
+    int(JointIndex.RIGHT_KNEE_PITCH): 4.0,
+    int(JointIndex.RIGHT_ANKLE_PITCH): 2.5,
+    int(JointIndex.RIGHT_ANKLE_ROLL): 2.5,
+}
+
+# WEAKER
+WALK_KP = {
+    int(JointIndex.LEFT_HIP_PITCH): 44.0,
+    int(JointIndex.LEFT_HIP_ROLL): 44.0,
+    int(JointIndex.LEFT_HIP_YAW): 44.0,
+    int(JointIndex.LEFT_KNEE_PITCH): 44.0,
+    int(JointIndex.LEFT_ANKLE_PITCH): 15.0,
+    int(JointIndex.LEFT_ANKLE_ROLL): 15.0,
+    int(JointIndex.RIGHT_HIP_PITCH): 44.0,
+    int(JointIndex.RIGHT_HIP_ROLL): 44.0,
+    int(JointIndex.RIGHT_HIP_YAW): 44.0,
+    int(JointIndex.RIGHT_KNEE_PITCH): 44.0,
+    int(JointIndex.RIGHT_ANKLE_PITCH): 15.0,
+    int(JointIndex.RIGHT_ANKLE_ROLL): 15.0,
+}
+
+WALK_KD = {
+    int(JointIndex.LEFT_HIP_PITCH): 3.0,
+    int(JointIndex.LEFT_HIP_ROLL): 4.0,
+    int(JointIndex.LEFT_HIP_YAW): 4.0,
+    int(JointIndex.LEFT_KNEE_PITCH): 4.0,
+    int(JointIndex.LEFT_ANKLE_PITCH): 2.5,
+    int(JointIndex.LEFT_ANKLE_ROLL): 2.5,
+    int(JointIndex.RIGHT_HIP_PITCH): 3.0,
     int(JointIndex.RIGHT_HIP_ROLL): 4.0,
     int(JointIndex.RIGHT_HIP_YAW): 4.0,
     int(JointIndex.RIGHT_KNEE_PITCH): 4.0,
@@ -106,10 +171,11 @@ HEIGHT_SCAN_SCALE = 0.2
 FRAME_DIM_WITH_HEIGHT_SCAN = FRAME_DIM + HEIGHT_SCAN_DIM
 assert FRAME_DIM_WITH_HEIGHT_SCAN == 260
 
-REAL_BASE_HEIGHT_FALLBACK = 0.538
+REAL_BASE_HEIGHT_FALLBACK = 0.538#0.538
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_MODEL_PATH = _REPO_ROOT / "v5_models" / "k1_minimal_model_76350.onnx"
+DEFAULT_MODEL_PATH = _REPO_ROOT / "v5_models" / "2026-08-11_15-12-48_k1_minimal_gait_and_mass_ft.onnx"
+# DEFAULT_MODEL_PATH = _REPO_ROOT / "v5_models" / "2026-08-11_17-07-35_k1_minimal_transition_torque_ft.onnx"
 
 
 def make_walk_joint_cmd(index: int, q: float) -> JointCommand:
@@ -279,7 +345,15 @@ class WalkPolicyV5(Policy):
             if ji in _ARM_CLIP_BY_INDEX:
                 lo, hi = _ARM_CLIP_BY_INDEX[ji]
                 q[i] = float(np.clip(q[i], lo, hi))
-        return q
+        lo = Q_ABS_LIMITS[ACTION_JOINTS, 0]
+        hi = Q_ABS_LIMITS[ACTION_JOINTS, 1]
+        return np.clip(q, lo, hi)
+
+    def _last_action_from_sent(self, q_abs: np.ndarray) -> List[float]:
+        """Relative action matching the q that was actually sent (after clips)."""
+        scale = np.where(np.abs(self._action_scale) > 1e-12, self._action_scale, 1.0)
+        rel = (q_abs - self._default_action_pos) / scale
+        return [float(x) for x in rel]
 
     def build_observation(
         self,
@@ -338,8 +412,8 @@ class WalkPolicyV5(Policy):
         raw = self._session.run([self._output_name], {self._input_name: x})[0]
         action = np.asarray(raw, dtype=np.float64).reshape(ACTION_DIM)
 
-        self._last_action = [float(a) for a in action]
         q_abs = self._action_to_absolute(action)
+        self._last_action = self._last_action_from_sent(q_abs)
 
         joint_cmds: List[JointCommand] = []
         for i, joint_idx in enumerate(ACTION_JOINTS):
