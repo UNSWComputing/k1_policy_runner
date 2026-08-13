@@ -13,7 +13,12 @@ overridden for walk joints). Arms use default joint_gains PD.
 Head not policy-controlled (sparse 20-joint action).
 
 Sent q is clipped to physical joint ranges (k1_22dof_scene.xml). last_action
-is inverted from that clipped q, so an out-of-range raw action is not fed back.
+feeds back the raw ONNX output before scale/offset/clip, matching mjlab
+training (env.action_manager.action is the raw policy output, saved before
+any per-term scale/offset -- see actions.py process_actions). Feeding back a
+clip-corrected value instead would put the model out of distribution exactly
+when a clip is active, i.e. near limits or during recovery -- the cases that
+matter most.
 """
 
 from __future__ import annotations
@@ -107,35 +112,35 @@ WALK_KD = {
 }
 
 # WEAKER
-WALK_KP = {
-    int(JointIndex.LEFT_HIP_PITCH): 44.0,
-    int(JointIndex.LEFT_HIP_ROLL): 44.0,
-    int(JointIndex.LEFT_HIP_YAW): 44.0,
-    int(JointIndex.LEFT_KNEE_PITCH): 44.0,
-    int(JointIndex.LEFT_ANKLE_PITCH): 15.0,
-    int(JointIndex.LEFT_ANKLE_ROLL): 15.0,
-    int(JointIndex.RIGHT_HIP_PITCH): 44.0,
-    int(JointIndex.RIGHT_HIP_ROLL): 44.0,
-    int(JointIndex.RIGHT_HIP_YAW): 44.0,
-    int(JointIndex.RIGHT_KNEE_PITCH): 44.0,
-    int(JointIndex.RIGHT_ANKLE_PITCH): 15.0,
-    int(JointIndex.RIGHT_ANKLE_ROLL): 15.0,
-}
+# WALK_KP = {
+#     int(JointIndex.LEFT_HIP_PITCH): 44.0,
+#     int(JointIndex.LEFT_HIP_ROLL): 44.0,
+#     int(JointIndex.LEFT_HIP_YAW): 44.0,
+#     int(JointIndex.LEFT_KNEE_PITCH): 44.0,
+#     int(JointIndex.LEFT_ANKLE_PITCH): 15.0,
+#     int(JointIndex.LEFT_ANKLE_ROLL): 15.0,
+#     int(JointIndex.RIGHT_HIP_PITCH): 44.0,
+#     int(JointIndex.RIGHT_HIP_ROLL): 44.0,
+#     int(JointIndex.RIGHT_HIP_YAW): 44.0,
+#     int(JointIndex.RIGHT_KNEE_PITCH): 44.0,
+#     int(JointIndex.RIGHT_ANKLE_PITCH): 15.0,
+#     int(JointIndex.RIGHT_ANKLE_ROLL): 15.0,
+# }
 
-WALK_KD = {
-    int(JointIndex.LEFT_HIP_PITCH): 3.0,
-    int(JointIndex.LEFT_HIP_ROLL): 4.0,
-    int(JointIndex.LEFT_HIP_YAW): 4.0,
-    int(JointIndex.LEFT_KNEE_PITCH): 4.0,
-    int(JointIndex.LEFT_ANKLE_PITCH): 2.5,
-    int(JointIndex.LEFT_ANKLE_ROLL): 2.5,
-    int(JointIndex.RIGHT_HIP_PITCH): 3.0,
-    int(JointIndex.RIGHT_HIP_ROLL): 4.0,
-    int(JointIndex.RIGHT_HIP_YAW): 4.0,
-    int(JointIndex.RIGHT_KNEE_PITCH): 4.0,
-    int(JointIndex.RIGHT_ANKLE_PITCH): 2.5,
-    int(JointIndex.RIGHT_ANKLE_ROLL): 2.5,
-}
+# WALK_KD = {
+#     int(JointIndex.LEFT_HIP_PITCH): 3.0,
+#     int(JointIndex.LEFT_HIP_ROLL): 4.0,
+#     int(JointIndex.LEFT_HIP_YAW): 4.0,
+#     int(JointIndex.LEFT_KNEE_PITCH): 4.0,
+#     int(JointIndex.LEFT_ANKLE_PITCH): 2.5,
+#     int(JointIndex.LEFT_ANKLE_ROLL): 2.5,
+#     int(JointIndex.RIGHT_HIP_PITCH): 3.0,
+#     int(JointIndex.RIGHT_HIP_ROLL): 4.0,
+#     int(JointIndex.RIGHT_HIP_YAW): 4.0,
+#     int(JointIndex.RIGHT_KNEE_PITCH): 4.0,
+#     int(JointIndex.RIGHT_ANKLE_PITCH): 2.5,
+#     int(JointIndex.RIGHT_ANKLE_ROLL): 2.5,
+# }
 
 # +/-15 deg arm target clip (env_cfgs_minimal _ARM_CLIP).
 _ARM_BAND = math.radians(15.0)
@@ -349,12 +354,6 @@ class WalkPolicyV5(Policy):
         hi = Q_ABS_LIMITS[ACTION_JOINTS, 1]
         return np.clip(q, lo, hi)
 
-    def _last_action_from_sent(self, q_abs: np.ndarray) -> List[float]:
-        """Relative action matching the q that was actually sent (after clips)."""
-        scale = np.where(np.abs(self._action_scale) > 1e-12, self._action_scale, 1.0)
-        rel = (q_abs - self._default_action_pos) / scale
-        return [float(x) for x in rel]
-
     def build_observation(
         self,
         state: RobotState,
@@ -413,7 +412,9 @@ class WalkPolicyV5(Policy):
         action = np.asarray(raw, dtype=np.float64).reshape(ACTION_DIM)
 
         q_abs = self._action_to_absolute(action)
-        self._last_action = self._last_action_from_sent(q_abs)
+        # Feed back the raw network output, not the clip-corrected q -- matches
+        # what env.action_manager.action stores during mjlab training.
+        self._last_action = [float(x) for x in action]
 
         joint_cmds: List[JointCommand] = []
         for i, joint_idx in enumerate(ACTION_JOINTS):

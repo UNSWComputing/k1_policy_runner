@@ -5,12 +5,16 @@ Same as walk_v5 without height_scan. Frame layout (73):
   + actions (20) + command (3)
 
 default_joint_pos and action_scale from ONNX metadata.
-Leg PD uses WALK_KP/KD (metadata joint_stiffness/damping is read then
-overridden for walk joints). Arms use default joint_gains PD.
+Leg PD uses WALK_KP/KD while moving; STAND_KP/KD when ‖vx,vy‖+|yaw| < 0.05.
 Head not policy-controlled (sparse 20-joint action).
 
 Sent q is clipped to physical joint ranges (k1_22dof_scene.xml). last_action
-is inverted from that clipped q, so an out-of-range raw action is not fed back.
+feeds back the raw ONNX output before scale/offset/clip, matching mjlab
+training (env.action_manager.action is the raw policy output, saved before
+any per-term scale/offset -- see actions.py process_actions). Feeding back a
+clip-corrected value instead would put the model out of distribution exactly
+when a clip is active, i.e. near limits or during recovery -- the cases that
+matter most.
 """
 
 from __future__ import annotations
@@ -105,28 +109,29 @@ WALK_KD = {
 
 # WEAKER
 WALK_KP = {
-    int(JointIndex.LEFT_HIP_PITCH): 44.0,
-    int(JointIndex.LEFT_HIP_ROLL): 44.0,
-    int(JointIndex.LEFT_HIP_YAW): 44.0,
-    int(JointIndex.LEFT_KNEE_PITCH): 44.0,
+    int(JointIndex.LEFT_HIP_PITCH): 80.0,
+    int(JointIndex.LEFT_HIP_ROLL): 80.0,
+    int(JointIndex.LEFT_HIP_YAW): 80.0,
+    int(JointIndex.LEFT_KNEE_PITCH): 80.0,
     int(JointIndex.LEFT_ANKLE_PITCH): 15.0,
     int(JointIndex.LEFT_ANKLE_ROLL): 15.0,
-    int(JointIndex.RIGHT_HIP_PITCH): 44.0,
-    int(JointIndex.RIGHT_HIP_ROLL): 44.0,
-    int(JointIndex.RIGHT_HIP_YAW): 44.0,
-    int(JointIndex.RIGHT_KNEE_PITCH): 44.0,
+    int(JointIndex.RIGHT_HIP_PITCH): 80.0,
+    int(JointIndex.RIGHT_HIP_ROLL): 80.0,
+    int(JointIndex.RIGHT_HIP_YAW): 80.0,
+    int(JointIndex.RIGHT_KNEE_PITCH): 80.0,
     int(JointIndex.RIGHT_ANKLE_PITCH): 15.0,
     int(JointIndex.RIGHT_ANKLE_ROLL): 15.0,
 }
 
+
 WALK_KD = {
-    int(JointIndex.LEFT_HIP_PITCH): 3.0,
+    int(JointIndex.LEFT_HIP_PITCH): 4.0,
     int(JointIndex.LEFT_HIP_ROLL): 4.0,
     int(JointIndex.LEFT_HIP_YAW): 4.0,
     int(JointIndex.LEFT_KNEE_PITCH): 4.0,
     int(JointIndex.LEFT_ANKLE_PITCH): 2.5,
     int(JointIndex.LEFT_ANKLE_ROLL): 2.5,
-    int(JointIndex.RIGHT_HIP_PITCH): 3.0,
+    int(JointIndex.RIGHT_HIP_PITCH): 4.0,
     int(JointIndex.RIGHT_HIP_ROLL): 4.0,
     int(JointIndex.RIGHT_HIP_YAW): 4.0,
     int(JointIndex.RIGHT_KNEE_PITCH): 4.0,
@@ -134,6 +139,38 @@ WALK_KD = {
     int(JointIndex.RIGHT_ANKLE_ROLL): 2.5,
 }
 
+STAND_KP = {
+    int(JointIndex.LEFT_HIP_PITCH): 40.0,
+    int(JointIndex.LEFT_HIP_ROLL): 40.0,
+    int(JointIndex.LEFT_HIP_YAW): 40.0,
+    int(JointIndex.LEFT_KNEE_PITCH): 40.0,
+    int(JointIndex.LEFT_ANKLE_PITCH): 13.0,
+    int(JointIndex.LEFT_ANKLE_ROLL): 13.0,
+    int(JointIndex.RIGHT_HIP_PITCH): 40.0,
+    int(JointIndex.RIGHT_HIP_ROLL): 40.0,
+    int(JointIndex.RIGHT_HIP_YAW): 40.0,
+    int(JointIndex.RIGHT_KNEE_PITCH): 40.0,
+    int(JointIndex.RIGHT_ANKLE_PITCH): 13.0,
+    int(JointIndex.RIGHT_ANKLE_ROLL): 13.0,
+}
+
+STAND_KD = {
+    int(JointIndex.LEFT_HIP_PITCH): 6.0,
+    int(JointIndex.LEFT_HIP_ROLL): 6.0,
+    int(JointIndex.LEFT_HIP_YAW): 6.0,
+    int(JointIndex.LEFT_KNEE_PITCH): 3.0,
+    int(JointIndex.LEFT_ANKLE_PITCH): 2.0,
+    int(JointIndex.LEFT_ANKLE_ROLL): 2.0,
+    int(JointIndex.RIGHT_HIP_PITCH): 6.0,
+    int(JointIndex.RIGHT_HIP_ROLL): 6.0,
+    int(JointIndex.RIGHT_HIP_YAW): 6.0,
+    int(JointIndex.RIGHT_KNEE_PITCH): 3.0,
+    int(JointIndex.RIGHT_ANKLE_PITCH): 2.0,
+    int(JointIndex.RIGHT_ANKLE_ROLL): 2.0,
+}
+
+# ‖vx,vy‖ + |yaw| below this → stand PD (softer legs).
+STILL_CMD_THRESHOLD = 0.05
 # +/-15 deg arm target clip (env_cfgs_minimal _ARM_CLIP).
 _ARM_BAND = math.radians(15.0)
 _ARM_CLIP_BY_INDEX: Dict[int, tuple[float, float]] = {
@@ -171,16 +208,33 @@ DEFAULT_MODEL_PATH = (
 )
 
 
-def make_walk_joint_cmd(index: int, q: float) -> JointCommand:
+def _is_still_command(command: Sequence[float]) -> bool:
+    vx = float(command[0]) if len(command) > 0 else 0.0
+    vy = float(command[1]) if len(command) > 1 else 0.0
+    wz = float(command[2]) if len(command) > 2 else 0.0
+    return math.hypot(vx, vy) + abs(wz) < STILL_CMD_THRESHOLD
+
+
+def make_leg_joint_cmd(index: int, q: float, stand: bool) -> JointCommand:
+    if stand:
+        kp = STAND_KP[index]
+        kd = STAND_KD[index]
+    else:
+        kp = WALK_KP[index]
+        kd = WALK_KD[index]
     return JointCommand(
         index=index,
         q=q,
         dq=0.0,
         tau=0.0,
-        kp=WALK_KP[index],
-        kd=WALK_KD[index],
+        kp=kp,
+        kd=kd,
         weight=1.0,
     )
+
+
+def make_walk_joint_cmd(index: int, q: float) -> JointCommand:
+    return make_leg_joint_cmd(index, q, stand=False)
 
 
 def _parse_csv_floats(raw: str) -> List[float]:
@@ -189,7 +243,6 @@ def _parse_csv_floats(raw: str) -> List[float]:
 
 def _apply_walk_pd_overrides(kp: np.ndarray, kd: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Metadata kp/kd read, then leg joints overwritten with custom walk gains."""
-    return kp, kd # disable walk pd overrides
     kp = kp.copy()
     kd = kd.copy()
     for ji, val in WALK_KP.items():
@@ -334,12 +387,6 @@ class WalkPolicyV6(Policy):
         hi = Q_ABS_LIMITS[ACTION_JOINTS, 1]
         return np.clip(q, lo, hi)
 
-    def _last_action_from_sent(self, q_abs: np.ndarray) -> List[float]:
-        """Relative action matching the q that was actually sent (after clips)."""
-        scale = np.where(np.abs(self._action_scale) > 1e-12, self._action_scale, 1.0)
-        rel = (q_abs - self._default_action_pos) / scale
-        return [float(x) for x in rel]
-
     def build_observation(
         self,
         state: RobotState,
@@ -381,14 +428,19 @@ class WalkPolicyV6(Policy):
         action = np.asarray(raw, dtype=np.float64).reshape(ACTION_DIM)
 
         q_abs = self._action_to_absolute(action)
-        self._last_action = self._last_action_from_sent(q_abs)
+        # Feed back the raw network output, not the clip-corrected q -- matches
+        # what env.action_manager.action stores during mjlab training.
+        self._last_action = [float(x) for x in action]
+
+        cmd = obs.data[-FRAME_COMMAND:]
+        stand = _is_still_command(cmd)
 
         joint_cmds: List[JointCommand] = []
         for i, joint_idx in enumerate(ACTION_JOINTS):
             ji = int(joint_idx)
             q = float(q_abs[i])
             if ji in WALK_KP:
-                joint_cmds.append(make_walk_joint_cmd(ji, q))
+                joint_cmds.append(make_leg_joint_cmd(ji, q, stand=stand))
             else:
                 joint_cmds.append(make_joint_cmd(ji, q))
         return Action(joint_cmds=joint_cmds)
