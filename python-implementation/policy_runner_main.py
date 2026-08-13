@@ -28,6 +28,7 @@ from policy_runner.policy import (
     Policy,
     SineAnklePolicy,
     SineArmPolicy,
+    SineHeadPolicy,
     SineHipPolicy,
     SineKneePolicy,
     StepAnklePolicy,
@@ -38,6 +39,8 @@ from policy_runner.policy import (
     WalkPolicyV3,
     WalkPolicyV4,
     WalkPolicyV5,
+    WalkPolicyV6,
+    WalkPolicyNubotsV1,
     merge_actions,
 )
 from policy_runner.robot import RobotBridge, spin_bridge_in_background
@@ -47,6 +50,7 @@ AVAILABLE = (
     "sine_arm",
     "sine_hip",
     "sine_ankle",
+    "sine_head",
     "step_arm",
     "step_ankle",
     "sine_knee",
@@ -57,6 +61,8 @@ AVAILABLE = (
     "walk_v3",
     "walk_v4",
     "walk_v5",
+    "walk_v6",
+    "walk_nubots_v1",
 )
 
 
@@ -71,6 +77,8 @@ def make_policy(
         return SineHipPolicy(CONTROL_DT)
     if name == "sine_ankle":
         return SineAnklePolicy(CONTROL_DT)
+    if name == "sine_head":
+        return SineHeadPolicy(CONTROL_DT)
     if name == "step_arm":
         return StepArmPolicy(CONTROL_DT)
     if name == "step_ankle":
@@ -93,6 +101,14 @@ def make_policy(
         if WalkPolicyV5 is None:
             raise RuntimeError("walk_v5 unavailable (install onnxruntime)")
         return WalkPolicyV5(CONTROL_DT, model_path=model_path)
+    if name == "walk_v6":
+        if WalkPolicyV6 is None:
+            raise RuntimeError("walk_v6 unavailable (install onnxruntime)")
+        return WalkPolicyV6(CONTROL_DT, model_path=model_path)
+    if name == "walk_nubots_v1":
+        if WalkPolicyNubotsV1 is None:
+            raise RuntimeError("walk_nubots_v1 unavailable (install onnxruntime)")
+        return WalkPolicyNubotsV1(CONTROL_DT, model_path=model_path)
     return None
 
 
@@ -136,7 +152,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument(
         "--model-path",
         default=None,
-        help="ONNX model for walk_v1 / walk_v2 / walk_v3 / walk_v4 / walk_v5",
+        help="ONNX model for walk_v1 / walk_v2 / walk_v3 / walk_v4 / walk_v5 / walk_v6 / walk_nubots_v1",
     )
     parser.add_argument(
         "--record-obs",

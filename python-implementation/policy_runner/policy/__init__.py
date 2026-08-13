@@ -4,6 +4,7 @@ from policy_runner.policy.merge import merge_actions
 from policy_runner.policy.obs_history import ObservationHistory
 from policy_runner.policy.sine_ankle_policy import SineAnklePolicy
 from policy_runner.policy.sine_arm_policy import SineArmPolicy
+from policy_runner.policy.sine_head_policy import SineHeadPolicy
 from policy_runner.policy.sine_hip_policy import SineHipPolicy
 from policy_runner.policy.sine_knee_policy import SineKneePolicy
 from policy_runner.policy.step_arm_policy import StepArmPolicy
@@ -43,12 +44,23 @@ try:
 except ImportError:  # pragma: no cover
     WalkPolicyV5 = None  # type: ignore
 
+try:
+    from policy_runner.policy.walk_policy_v6 import WalkPolicyV6
+except ImportError:  # pragma: no cover
+    WalkPolicyV6 = None  # type: ignore
+
+try:
+    from policy_runner.policy.walk_policy_nubots_v1 import WalkPolicyNubotsV1
+except ImportError:  # pragma: no cover
+    WalkPolicyNubotsV1 = None  # type: ignore
+
 __all__ = [
     "Policy",
     "HoldLowerBodyPolicy",
     "ObservationHistory",
     "SineAnklePolicy",
     "SineArmPolicy",
+    "SineHeadPolicy",
     "SineHipPolicy",
     "SineKneePolicy",
     "StepAnklePolicy",
@@ -59,5 +71,7 @@ __all__ = [
     "WalkPolicyV3",
     "WalkPolicyV4",
     "WalkPolicyV5",
+    "WalkPolicyV6",
+    "WalkPolicyNubotsV1",
     "merge_actions",
 ]
