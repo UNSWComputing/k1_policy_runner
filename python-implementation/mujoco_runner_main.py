@@ -35,6 +35,7 @@ from policy_runner.policy import (
     WalkPolicyV2,
     WalkPolicyV3,
     WalkPolicyV4,
+    WalkPolicyNubotsV1,
     merge_actions,
 )
 from policy_runner.sim import DEFAULT_MJCF, MujocoBridge
@@ -58,6 +59,7 @@ AVAILABLE = (
     "walk_v2",
     "walk_v3",
     "walk_v4",
+    "walk_nubots_v1",
     "parameter_walk",
 )
 
@@ -100,6 +102,10 @@ def make_policy(
         if WalkPolicyV4 is None:
             raise RuntimeError("walk_v4 unavailable (install onnxruntime)")
         return WalkPolicyV4(CONTROL_DT, model_path=model_path)
+    if name == "walk_nubots_v1":
+        if WalkPolicyNubotsV1 is None:
+            raise RuntimeError("walk_nubots_v1 unavailable (install onnxruntime)")
+        return WalkPolicyNubotsV1(CONTROL_DT, model_path=model_path)
     if name == "parameter_walk":
         if ParameterWalkPolicy is None:
             raise RuntimeError("parameter_walk policy not available")
@@ -195,7 +201,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument(
         "--model-path",
         default=None,
-        help="Model for walk_v1 (.onnx) or parameter_walk (.pt/.onnx)",
+        help=(
+            "Model for walk_v1/v2/v3/v4 / walk_nubots_v1 (.onnx) "
+            "or parameter_walk (.pt/.onnx)"
+        ),
     )
     parser.add_argument(
         "--cmd",
@@ -283,7 +292,12 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # Match MuJoCo hold/init pose to the policy's obs default when available.
     default_q = None
-    if any(p.name() == "walk_v4" for p in policies):
+    if any(p.name() == "walk_nubots_v1" for p in policies):
+        from policy_runner.policy.walk_policy_nubots_v1 import DEFAULT_JOINT_POS
+
+        default_q = DEFAULT_JOINT_POS
+        print("MuJoCo default_q ← walk_nubots_v1 DEFAULT_JOINT_POS")
+    elif any(p.name() == "walk_v4" for p in policies):
         from policy_runner.policy.walk_policy_v4 import DEFAULT_JOINT_POS
 
         default_q = DEFAULT_JOINT_POS

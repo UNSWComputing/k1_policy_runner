@@ -1,5 +1,5 @@
 """ROS2 robot bridge: /joint_states + /low_state (IMU) in, /joint_ctrl out,
-optional /cmd_vel for walk velocity command.
+optional /cmd_vel for walk velocity command, /nubots_walk/enable pause.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
+from std_msgs.msg import Bool
 
 from booster_interface.msg import LowCmd, LowState, MotorCmd
 
@@ -39,6 +40,7 @@ class RobotBridge(Node):
     Subscribes: /joint_states (sensor_msgs/JointState)
                 /low_state    (booster_interface/msg/LowState) for IMU
                 /cmd_vel      (geometry_msgs/Twist) → [vx, vy, ωz]
+                /nubots_walk/enable (std_msgs/Bool) pause/resume
     Publishes:  /joint_ctrl   (booster_interface/msg/LowCmd)
     """
 
@@ -48,6 +50,7 @@ class RobotBridge(Node):
         joint_ctrl_topic: str = "/joint_ctrl",
         low_state_topic: str = "/low_state",
         cmd_vel_topic: str = "/cmd_vel",
+        enable_topic: str = "/nubots_walk/enable",
     ) -> None:
         super().__init__("policy_runner")
 
@@ -66,6 +69,10 @@ class RobotBridge(Node):
         self._cmd_lock = threading.Lock()
         self._latest_command: List[float] = [0.0, 0.0, 0.0]
 
+        # Policy publish gate; default enabled until a Bool says otherwise.
+        self._enable_lock = threading.Lock()
+        self._enabled = True
+
         self._pub = self.create_publisher(LowCmd, joint_ctrl_topic, 10)
         self._joint_sub = self.create_subscription(
             JointState, joint_state_topic, self._on_joint_state, 10
@@ -76,10 +83,13 @@ class RobotBridge(Node):
         self._cmd_vel_sub = self.create_subscription(
             Twist, cmd_vel_topic, self._on_cmd_vel, 10
         )
+        self._enable_sub = self.create_subscription(
+            Bool, enable_topic, self._on_enable, 10
+        )
 
         self.get_logger().info(
             f"Subscribed to {joint_state_topic}, {low_state_topic}, "
-            f"{cmd_vel_topic}; publishing to {joint_ctrl_topic}"
+            f"{cmd_vel_topic}, {enable_topic}; publishing to {joint_ctrl_topic}"
         )
 
     def has_state(self) -> bool:
@@ -103,6 +113,11 @@ class RobotBridge(Node):
         """Latest [vx, vy, ωz] from /cmd_vel (defaults to zeros)."""
         with self._cmd_lock:
             return list(self._latest_command)
+
+    def is_enabled(self) -> bool:
+        """Whether the control loop should publish /joint_ctrl."""
+        with self._enable_lock:
+            return self._enabled
 
     def publish_action(self, action: Action) -> None:
         """Write sparse Action onto a full LowCmd. Uncontrolled joints get weight=0."""
@@ -139,6 +154,10 @@ class RobotBridge(Node):
                 float(msg.linear.y),
                 float(msg.angular.z),
             ]
+
+    def _on_enable(self, msg: Bool) -> None:
+        with self._enable_lock:
+            self._enabled = bool(msg.data)
 
     def _on_joint_state(self, msg: JointState) -> None:
         q = [0.0] * B1_JOINT_COUNT

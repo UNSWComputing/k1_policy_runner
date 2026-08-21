@@ -150,6 +150,10 @@ python3 mujoco_runner_main.py walk_v1 \
   --model-path ../k1_v24_model_105600.onnx \
   --cmd 0.5,0,0 --realtime
 
+# NUbots walk (default ONNX under ../nubots_models/)
+python3 mujoco_runner_main.py walk_nubots_v1 \
+  --cmd 0.3,0,0 --realtime --stdin-cmd
+
 # ParameterWalk (TorchScript)
 python3 mujoco_runner_main.py parameter_walk \
   --model-path ../parameter_walk_model_20000.pt \
@@ -160,7 +164,7 @@ python3 mujoco_runner_main.py parameter_walk \
 
 `--cmd` is comma-separated:
 
-- `walk_v1` / `walk_v2`: `vx,vy,yaw` (twist)
+- `walk_v1` / `walk_v2` / `walk_nubots_v1`: `vx,vy,yaw` (twist)
 - `parameter_walk`: up to 10 values  
   `vx,vy,vyaw,gait_freq,yawL,yawR,pitch,roll,offset_x,offset_y`
 
@@ -181,6 +185,6 @@ python3 mujoco_runner_main.py walk_v2 \
 ### Notes
 
 - Control loop is **50 Hz** (`physics_dt=0.002`, `decimation=10`), matching training.
-- For `walk_v1` / `walk_v2`, MuJoCo init/hold pose is set to that policy’s `DEFAULT_JOINT_POS` so obs `q − default` is not biased.
+- For `walk_v1` / `walk_v2` / `walk_nubots_v1`, MuJoCo init/hold pose is set to that policy’s `DEFAULT_JOINT_POS` so obs `q − default` is not biased.
 - Sim-to-sim is **nominal** (no domain randomization). PD / armature / effort mismatches vs Isaac can still cause falls.
 - Always `cd` into `python-implementation/` before running (or pass the full path to the script).

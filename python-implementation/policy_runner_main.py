@@ -150,6 +150,19 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Twist topic for walk velocity [vx, vy, yaw] (default: /cmd_vel)",
     )
     parser.add_argument(
+        "--enable-topic",
+        default="/nubots_walk/enable",
+        help=(
+            "Bool topic to pause/resume /joint_ctrl publishing "
+            "(default: /nubots_walk/enable; default enabled until false)"
+        ),
+    )
+    parser.add_argument(
+        "--auto-start",
+        action="store_true",
+        help="Skip the ENTER prompt and start Custom mode immediately",
+    )
+    parser.add_argument(
         "--model-path",
         default=None,
         help="ONNX model for walk_v1 / walk_v2 / walk_v3 / walk_v4 / walk_v5 / walk_v6 / walk_nubots_v1",
@@ -200,6 +213,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         joint_ctrl_topic=args.joint_ctrl_topic,
         low_state_topic=args.low_state_topic,
         cmd_vel_topic=args.cmd_vel_topic,
+        enable_topic=args.enable_topic,
     )
     spin_bridge_in_background(bridge)
 
@@ -214,6 +228,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(
         f"cmd_vel topic: {args.cmd_vel_topic} → command [vx, vy, yaw_rate]"
     )
+    print(
+        f"enable topic: {args.enable_topic} "
+        f"(false → stop /joint_ctrl; true → Custom + reset)"
+    )
     print("Waiting for /joint_states and /low_state (IMU)...")
     ChannelFactory.Instance().Init(0)
     client = B1LocoClient()
@@ -226,7 +244,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         if not rclpy.ok():
             return 1
 
-        input("Press ENTER to start policy control...")
+        if not args.auto_start:
+            input("Press ENTER to start policy control...")
         client.ChangeMode(RobotMode.kCustom)
         for policy in policies:
             policy.reset()
@@ -235,21 +254,37 @@ def main(argv: Optional[list[str]] = None) -> int:
         loop_count = 0
         freq_t0 = time.perf_counter()
         next_tick = time.perf_counter()
+        was_enabled = True
 
         while rclpy.ok():
+            enabled = bridge.is_enabled()
+            if enabled and not was_enabled:
+                print("enable=true → ChangeMode(kCustom) + policy reset")
+                try:
+                    client.ChangeMode(RobotMode.kCustom)
+                except Exception as e:
+                    print(f"ChangeMode(kCustom) failed: {e}")
+                for policy in policies:
+                    policy.reset()
+            elif not enabled and was_enabled:
+                print("enable=false → paused (/joint_ctrl stopped)")
+            was_enabled = enabled
+
             state = bridge.latest_state()
             command = bridge.latest_command()
-            actions = [
-                policy.infer(policy.build_observation(state, command))
-                for policy in policies
-            ]
-            bridge.publish_action(merge_actions(actions))
+            if enabled:
+                actions = [
+                    policy.infer(policy.build_observation(state, command))
+                    for policy in policies
+                ]
+                bridge.publish_action(merge_actions(actions))
             loop_count += 1
 
             elapsed = time.perf_counter() - freq_t0
             if elapsed >= 1.0:
                 print(
                     f"control loop: {loop_count / elapsed:.1f} Hz  "
+                    f"enabled={enabled}  "
                     f"cmd_vel=[{command[0]:.2f}, {command[1]:.2f}, "
                     f"{command[2]:.2f}]"
                 )
