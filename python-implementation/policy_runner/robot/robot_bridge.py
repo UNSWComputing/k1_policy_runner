@@ -41,6 +41,7 @@ class RobotBridge(Node):
                 /low_state    (booster_interface/msg/LowState) for IMU
                 /cmd_vel      (geometry_msgs/Twist) → [vx, vy, ωz]
                 /nubots_walk/enable (std_msgs/Bool) pause/resume
+                /nubots_walk/shutdown (std_msgs/Bool) exit policy_runner
     Publishes:  /joint_ctrl   (booster_interface/msg/LowCmd)
     """
 
@@ -51,6 +52,7 @@ class RobotBridge(Node):
         low_state_topic: str = "/low_state",
         cmd_vel_topic: str = "/cmd_vel",
         enable_topic: str = "/nubots_walk/enable",
+        shutdown_topic: str = "/nubots_walk/shutdown",
     ) -> None:
         super().__init__("policy_runner")
 
@@ -73,6 +75,9 @@ class RobotBridge(Node):
         self._enable_lock = threading.Lock()
         self._enabled = True
 
+        self._shutdown_lock = threading.Lock()
+        self._shutdown_requested = False
+
         self._pub = self.create_publisher(LowCmd, joint_ctrl_topic, 10)
         self._joint_sub = self.create_subscription(
             JointState, joint_state_topic, self._on_joint_state, 10
@@ -86,10 +91,14 @@ class RobotBridge(Node):
         self._enable_sub = self.create_subscription(
             Bool, enable_topic, self._on_enable, 10
         )
+        self._shutdown_sub = self.create_subscription(
+            Bool, shutdown_topic, self._on_shutdown, 10
+        )
 
         self.get_logger().info(
             f"Subscribed to {joint_state_topic}, {low_state_topic}, "
-            f"{cmd_vel_topic}, {enable_topic}; publishing to {joint_ctrl_topic}"
+            f"{cmd_vel_topic}, {enable_topic}, {shutdown_topic}; "
+            f"publishing to {joint_ctrl_topic}"
         )
 
     def has_state(self) -> bool:
@@ -118,6 +127,10 @@ class RobotBridge(Node):
         """Whether the control loop should publish /joint_ctrl."""
         with self._enable_lock:
             return self._enabled
+
+    def shutdown_requested(self) -> bool:
+        with self._shutdown_lock:
+            return self._shutdown_requested
 
     def publish_action(self, action: Action) -> None:
         """Write sparse Action onto a full LowCmd. Uncontrolled joints get weight=0."""
@@ -158,6 +171,13 @@ class RobotBridge(Node):
     def _on_enable(self, msg: Bool) -> None:
         with self._enable_lock:
             self._enabled = bool(msg.data)
+
+    def _on_shutdown(self, msg: Bool) -> None:
+        if not msg.data:
+            return
+        with self._shutdown_lock:
+            self._shutdown_requested = True
+        self.get_logger().info("shutdown requested — exiting policy_runner")
 
     def _on_joint_state(self, msg: JointState) -> None:
         q = [0.0] * B1_JOINT_COUNT

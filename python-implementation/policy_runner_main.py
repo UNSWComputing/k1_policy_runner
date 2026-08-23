@@ -158,6 +158,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         ),
     )
     parser.add_argument(
+        "--shutdown-topic",
+        default="/nubots_walk/shutdown",
+        help=(
+            "Bool topic: true exits policy_runner "
+            "(default: /nubots_walk/shutdown)"
+        ),
+    )
+    parser.add_argument(
         "--auto-start",
         action="store_true",
         help="Skip the ENTER prompt and start Custom mode immediately",
@@ -214,6 +222,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         low_state_topic=args.low_state_topic,
         cmd_vel_topic=args.cmd_vel_topic,
         enable_topic=args.enable_topic,
+        shutdown_topic=args.shutdown_topic,
     )
     spin_bridge_in_background(bridge)
 
@@ -231,6 +240,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(
         f"enable topic: {args.enable_topic} "
         f"(false → stop /joint_ctrl; true → Custom + reset)"
+    )
+    print(
+        f"shutdown topic: {args.shutdown_topic} "
+        f"(true → exit policy_runner)"
     )
     print("Waiting for /joint_states and /low_state (IMU)...")
     ChannelFactory.Instance().Init(0)
@@ -257,6 +270,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         was_enabled = True
 
         while rclpy.ok():
+            if bridge.shutdown_requested():
+                print("shutdown=true → stopping policy_runner")
+                break
             enabled = bridge.is_enabled()
             if enabled and not was_enabled:
                 print("enable=true → ChangeMode(kCustom) + policy reset")
