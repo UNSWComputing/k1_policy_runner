@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
@@ -36,6 +36,7 @@ from policy_runner.policy import (
     WalkPolicyV3,
     WalkPolicyV4,
     WalkPolicyNubotsV1,
+    WalkPolicyAmpV1,
     merge_actions,
 )
 from policy_runner.sim import DEFAULT_MJCF, MujocoBridge
@@ -60,6 +61,7 @@ AVAILABLE = (
     "walk_v3",
     "walk_v4",
     "walk_nubots_v1",
+    "walk_amp_v1",
     "parameter_walk",
 )
 
@@ -69,6 +71,10 @@ def make_policy(
     model_path: Optional[str] = None,
     cmd: Optional[list[float]] = None,
     gait_freq: Optional[float] = None,
+    kp: Optional[List[float]] = None,
+    kd: Optional[List[float]] = None,
+    kp_override: Optional[Dict[int, float]] = None,
+    kd_override: Optional[Dict[int, float]] = None,
 ) -> Optional[Policy]:
     if name == "sine_arm":
         return SineArmPolicy(CONTROL_DT)
@@ -106,6 +112,17 @@ def make_policy(
         if WalkPolicyNubotsV1 is None:
             raise RuntimeError("walk_nubots_v1 unavailable (install onnxruntime)")
         return WalkPolicyNubotsV1(CONTROL_DT, model_path=model_path)
+    if name == "walk_amp_v1":
+        if WalkPolicyAmpV1 is None:
+            raise RuntimeError("walk_amp_v1 unavailable (install onnxruntime)")
+        return WalkPolicyAmpV1(
+            CONTROL_DT,
+            model_path=model_path,
+            kp=kp,
+            kd=kd,
+            kp_override=kp_override,
+            kd_override=kd_override,
+        )
     if name == "parameter_walk":
         if ParameterWalkPolicy is None:
             raise RuntimeError("parameter_walk policy not available")
@@ -202,8 +219,34 @@ def main(argv: Optional[list[str]] = None) -> int:
         "--model-path",
         default=None,
         help=(
-            "Model for walk_v1/v2/v3/v4 / walk_nubots_v1 (.onnx) "
+            "Model for walk_v1/v2/v3/v4 / walk_nubots_v1 / walk_amp_v1 (.onnx) "
             "or parameter_walk (.pt/.onnx)"
+        ),
+    )
+    parser.add_argument(
+        "--kp",
+        default=None,
+        help="walk_amp_v1: replace all 22 joint kp values (CSV). Default: ONNX metadata",
+    )
+    parser.add_argument(
+        "--kd",
+        default=None,
+        help="walk_amp_v1: replace all 22 joint kd values (CSV). Default: ONNX metadata",
+    )
+    parser.add_argument(
+        "--kp-override",
+        default=None,
+        help=(
+            "walk_amp_v1: sparse kp patches on top of metadata, "
+            "e.g. 14:30,Left_Ankle_Roll=30"
+        ),
+    )
+    parser.add_argument(
+        "--kd-override",
+        default=None,
+        help=(
+            "walk_amp_v1: sparse kd patches on top of metadata, "
+            "e.g. 14:1.5,Left_Ankle_Roll=1.5"
         ),
     )
     parser.add_argument(
@@ -273,6 +316,35 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.cmd:
         cmd = [float(x) for x in args.cmd.split(",") if x.strip() != ""]
 
+    kp: Optional[List[float]] = None
+    kd: Optional[List[float]] = None
+    kp_override: Optional[Dict[int, float]] = None
+    kd_override: Optional[Dict[int, float]] = None
+    if "walk_amp_v1" in names:
+        from policy_runner.policy.walk_policy_amp_v1 import (
+            parse_pd_overrides,
+            parse_pd_vector,
+        )
+
+        try:
+            if args.kp is not None:
+                kp = parse_pd_vector(args.kp, "kp").tolist()
+            if args.kd is not None:
+                kd = parse_pd_vector(args.kd, "kd").tolist()
+            if args.kp_override:
+                kp_override = parse_pd_overrides(args.kp_override)
+            if args.kd_override:
+                kd_override = parse_pd_overrides(args.kd_override)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    elif any((args.kp, args.kd, args.kp_override, args.kd_override)):
+        print(
+            "--kp / --kd / --kp-override / --kd-override require walk_amp_v1",
+            file=sys.stderr,
+        )
+        return 1
+
     policies: List[Policy] = []
     for name in names:
         try:
@@ -281,6 +353,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                 model_path=args.model_path,
                 cmd=cmd,
                 gait_freq=args.gait_freq,
+                kp=kp,
+                kd=kd,
+                kp_override=kp_override,
+                kd_override=kd_override,
             )
         except Exception as exc:
             print(f"Failed to create policy {name}: {exc}", file=sys.stderr)
@@ -292,7 +368,18 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # Match MuJoCo hold/init pose to the policy's obs default when available.
     default_q = None
-    if any(p.name() == "walk_nubots_v1" for p in policies):
+    init_pos = None
+    if any(p.name() == "walk_amp_v1" for p in policies):
+        from policy_runner.policy.walk_policy_amp_v1 import (
+            AMP_INIT_POS,
+            WalkPolicyAmpV1 as AmpCls,
+        )
+
+        amp = next(p for p in policies if isinstance(p, AmpCls))
+        default_q = amp.default_joint_pos
+        init_pos = AMP_INIT_POS
+        print("MuJoCo default_q ← walk_amp_v1 ONNX default_joint_pos")
+    elif any(p.name() == "walk_nubots_v1" for p in policies):
         from policy_runner.policy.walk_policy_nubots_v1 import DEFAULT_JOINT_POS
 
         default_q = DEFAULT_JOINT_POS
@@ -319,7 +406,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("MuJoCo default_q ← walk_v1 DEFAULT_JOINT_POS")
 
     bridge = MujocoBridge(
-        mjcf_path=args.mjcf, control_dt=CONTROL_DT, default_q=default_q
+        mjcf_path=args.mjcf,
+        control_dt=CONTROL_DT,
+        default_q=default_q,
+        **({"init_pos": init_pos} if init_pos is not None else {}),
     )
     for policy in policies:
         policy.reset()

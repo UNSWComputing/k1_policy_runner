@@ -46,6 +46,7 @@ python3 policy_runner_main.py sine_knee
 python3 policy_runner_main.py hold_lower
 python3 policy_runner_main.py sine_arm,hold_lower   # arms move, legs hold
 python3 policy_runner_main.py walk_v1
+python3 policy_runner_main.py walk_amp_v1 --model-path ../amp_models/model_29999.onnx
 ```
 
 Optional topic overrides:
@@ -87,6 +88,28 @@ python3 joint_record.py runs/walk_obs.npz --plot
 python3 joint_record.py runs/walk_obs.npz --plot --save runs/walk --no-show
 ```
 
+### Walk AMP v1
+
+mjlab AMP velocity policy: 75-D obs → 22-D action (all joints, including head). PD comes from ONNX `joint_stiffness` / `joint_damping` unless overridden.
+
+```bash
+python3 policy_runner_main.py walk_amp_v1 \
+  --model-path ../amp_models/model_29999.onnx
+
+# Replace every joint's kp (22 CSV values)
+python3 policy_runner_main.py walk_amp_v1 \
+  --model-path ../amp_models/model_29999.onnx \
+  --kp 4,4,10,10,10,10,10,10,10,10,80,80,80,80,50,50,80,80,80,80,50,50
+
+# Patch a few joints on top of metadata
+python3 policy_runner_main.py walk_amp_v1 \
+  --model-path ../amp_models/model_29999.onnx \
+  --kp-override Left_Ankle_Pitch=30,Right_Ankle_Pitch=30 \
+  --kd-override 14:1.5,20:1.5
+```
+
+`--kp-override` / `--kd-override` accept `index:value` or `name=value` (ROS, mjlab, or `JointIndex` names). `--kp` / `--kd` replace the full 22-vector; sparse flags apply after that.
+
 ### Safety sequence
 
 1. Put the robot in **Prepare** mode.
@@ -107,6 +130,7 @@ python3 joint_record.py runs/walk_obs.npz --plot --save runs/walk --no-show
 | `walk_v1` | ONNX walk: settle to default pose, then RL (legs) + hold upper body (65×3→12) | Full body (0–21) |
 | `walk_v2` | ONNX walk: same pattern, no head in obs (61×3→12) | Full body (0–21) |
 | `walk_v3` | ONNX walk: v2 + gait_clock (61×3+2→12), new default pose | Full body (0–21) |
+| `walk_amp_v1` | mjlab AMP velocity: 75→22, PD from ONNX metadata (overridable) | Full body (0–21) |
 | `parameter_walk` | Gym K1 ParameterWalk TorchScript/ONNX (54→12) | Lower body (10–21) |
 
 Policies emit **sparse** actions. Pass several comma-separated names to run them in parallel; actions are merged by joint index (later policy wins on conflicts). Unowned joints stay `weight = 0`.
@@ -154,6 +178,13 @@ python3 mujoco_runner_main.py walk_v1 \
 python3 mujoco_runner_main.py walk_nubots_v1 \
   --cmd 0.3,0,0 --realtime --stdin-cmd
 
+# AMP walk (75→22). PD defaults to ONNX metadata; optional overrides:
+python3 mujoco_runner_main.py walk_amp_v1 \
+  --model-path ../amp_models/model_29999.onnx \
+  --cmd 0.3,0,0 --realtime
+# python3 mujoco_runner_main.py walk_amp_v1 --model-path ../amp_models/model_29999.onnx \
+#   --kp-override Left_Ankle_Pitch=30,Right_Ankle_Pitch=30 --cmd 0.3,0,0 --realtime
+
 # ParameterWalk (TorchScript)
 python3 mujoco_runner_main.py parameter_walk \
   --model-path ../parameter_walk_model_20000.pt \
@@ -164,7 +195,7 @@ python3 mujoco_runner_main.py parameter_walk \
 
 `--cmd` is comma-separated:
 
-- `walk_v1` / `walk_v2` / `walk_nubots_v1`: `vx,vy,yaw` (twist)
+- `walk_v1` / `walk_v2` / `walk_nubots_v1` / `walk_amp_v1`: `vx,vy,yaw` (twist)
 - `parameter_walk`: up to 10 values  
   `vx,vy,vyaw,gait_freq,yawL,yawR,pitch,roll,offset_x,offset_y`
 

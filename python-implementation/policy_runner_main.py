@@ -7,7 +7,7 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 # Allow `python3 policy_runner_main.py` from this directory.
 _ROOT = Path(__file__).resolve().parent
@@ -41,6 +41,7 @@ from policy_runner.policy import (
     WalkPolicyV5,
     WalkPolicyV6,
     WalkPolicyNubotsV1,
+    WalkPolicyAmpV1,
     merge_actions,
 )
 from policy_runner.robot import RobotBridge, spin_bridge_in_background
@@ -63,6 +64,7 @@ AVAILABLE = (
     "walk_v5",
     "walk_v6",
     "walk_nubots_v1",
+    "walk_amp_v1",
 )
 
 
@@ -70,6 +72,10 @@ def make_policy(
     name: str,
     model_path: Optional[str] = None,
     recorder: Optional[ModelInputRecorder] = None,
+    kp: Optional[List[float]] = None,
+    kd: Optional[List[float]] = None,
+    kp_override: Optional[Dict[int, float]] = None,
+    kd_override: Optional[Dict[int, float]] = None,
 ) -> Optional[Policy]:
     if name == "sine_arm":
         return SineArmPolicy(CONTROL_DT)
@@ -109,6 +115,17 @@ def make_policy(
         if WalkPolicyNubotsV1 is None:
             raise RuntimeError("walk_nubots_v1 unavailable (install onnxruntime)")
         return WalkPolicyNubotsV1(CONTROL_DT, model_path=model_path)
+    if name == "walk_amp_v1":
+        if WalkPolicyAmpV1 is None:
+            raise RuntimeError("walk_amp_v1 unavailable (install onnxruntime)")
+        return WalkPolicyAmpV1(
+            CONTROL_DT,
+            model_path=model_path,
+            kp=kp,
+            kd=kd,
+            kp_override=kp_override,
+            kd_override=kd_override,
+        )
     return None
 
 
@@ -173,7 +190,36 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument(
         "--model-path",
         default=None,
-        help="ONNX model for walk_v1 / walk_v2 / walk_v3 / walk_v4 / walk_v5 / walk_v6 / walk_nubots_v1",
+        help=(
+            "ONNX model for walk_v1 / walk_v2 / walk_v3 / walk_v4 / walk_v5 / "
+            "walk_v6 / walk_nubots_v1 / walk_amp_v1"
+        ),
+    )
+    parser.add_argument(
+        "--kp",
+        default=None,
+        help="walk_amp_v1: replace all 22 joint kp values (CSV). Default: ONNX metadata",
+    )
+    parser.add_argument(
+        "--kd",
+        default=None,
+        help="walk_amp_v1: replace all 22 joint kd values (CSV). Default: ONNX metadata",
+    )
+    parser.add_argument(
+        "--kp-override",
+        default=None,
+        help=(
+            "walk_amp_v1: sparse kp patches on top of metadata, "
+            "e.g. 14:30,Left_Ankle_Roll=30"
+        ),
+    )
+    parser.add_argument(
+        "--kd-override",
+        default=None,
+        help=(
+            "walk_amp_v1: sparse kd patches on top of metadata, "
+            "e.g. 14:1.5,Left_Ankle_Roll=1.5"
+        ),
     )
     parser.add_argument(
         "--record-obs",
@@ -202,12 +248,45 @@ def main(argv: Optional[list[str]] = None) -> int:
         recorder = ModelInputRecorder(args.record_obs)
         print(f"Recording walk_v1 model inputs → {Path(args.record_obs)}")
 
+    kp: Optional[List[float]] = None
+    kd: Optional[List[float]] = None
+    kp_override: Optional[Dict[int, float]] = None
+    kd_override: Optional[Dict[int, float]] = None
+    if "walk_amp_v1" in names:
+        from policy_runner.policy.walk_policy_amp_v1 import (
+            parse_pd_overrides,
+            parse_pd_vector,
+        )
+
+        try:
+            if args.kp is not None:
+                kp = parse_pd_vector(args.kp, "kp").tolist()
+            if args.kd is not None:
+                kd = parse_pd_vector(args.kd, "kd").tolist()
+            if args.kp_override:
+                kp_override = parse_pd_overrides(args.kp_override)
+            if args.kd_override:
+                kd_override = parse_pd_overrides(args.kd_override)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    elif any((args.kp, args.kd, args.kp_override, args.kd_override)):
+        print(
+            "--kp / --kd / --kp-override / --kd-override require walk_amp_v1",
+            file=sys.stderr,
+        )
+        return 1
+
     policies: List[Policy] = []
     for name in names:
         policy = make_policy(
             name,
             model_path=args.model_path,
             recorder=recorder if name == "walk_v1" else None,
+            kp=kp,
+            kd=kd,
+            kp_override=kp_override,
+            kd_override=kd_override,
         )
         if policy is None:
             print(f"Unknown policy: {name}", file=sys.stderr)
