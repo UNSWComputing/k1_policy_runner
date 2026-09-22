@@ -105,6 +105,33 @@ python3 joint_record.py runs/walk_obs.npz --plot --save runs/walk --no-show
 Topics: `/joint_states` + `/low_state` (IMU) → `/joint_ctrl` `booster_interface/msg/LowCmd`.  
 Details: [`python-implementation/README.md`](python-implementation/README.md).
 
+### Joystick teleop (walk)
+
+Requires `joy` and `teleop_twist_joy` (`sudo apt install ros-$ROS_DISTRO-joy ros-$ROS_DISTRO-teleop-twist-joy`). Source ROS 2 first.
+
+From the **repo root**, launch the gamepad nodes:
+
+```bash
+ros2 launch launch/joy.launch.py
+```
+
+That publishes `sensor_msgs/Joy` on `policy_runner/joy` and `geometry_msgs/Twist` on `/cmd_vel`. Then start a walk policy as usual (`python3 policy_runner_main.py walk_v6 …` from `python-implementation/`).
+
+**Speed cap** is not a launch argument. Edit [`config/joy.yaml`](config/joy.yaml):
+
+- `scale_linear` / `scale_angular` — normal max `vx`, `vy` (m/s) and yaw (rad/s)
+- `scale_linear_turbo` / `scale_angular_turbo` — turbo max
+
+| Control | Action |
+|---|---|
+| Hold **LB** + left stick | Normal walk: forward/back (`vx`), strafe (`vy`) |
+| Hold **LB** + right stick X | Normal yaw |
+| Hold **LB + RB** + sticks | Turbo (higher cap from the yaml) |
+| Release **LB** | `cmd_vel` goes to zero |
+| Click **left stick** (L3) | `ChangeMode(kCustom)` — start or re-enter Custom |
+
+Fall recovery is **not** handled by this launch. If the robot falls, damping and getup stay on the Booster controller: **LT + up arrow**. Do not expect the ROS joystick to pick the robot up.
+
 ## Policies
 
 | Name | Behavior | Animated joints |
