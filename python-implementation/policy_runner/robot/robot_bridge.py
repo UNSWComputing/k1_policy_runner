@@ -1,16 +1,17 @@
 """ROS2 robot bridge: /joint_states + /low_state (IMU) in, /joint_ctrl out,
-optional /cmd_vel for walk velocity command, /nubots_walk/enable pause.
+optional /cmd_vel for walk velocity command, /nubots_walk/enable pause,
+optional joy button to request Custom mode.
 """
 
 from __future__ import annotations
 
 import threading
-from typing import List, Sequence
+from typing import List, Optional, Sequence
 
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import JointState, Joy
 from std_msgs.msg import Bool
 
 from booster_interface.msg import LowCmd, LowState, MotorCmd
@@ -42,6 +43,7 @@ class RobotBridge(Node):
                 /cmd_vel      (geometry_msgs/Twist) → [vx, vy, ωz]
                 /nubots_walk/enable (std_msgs/Bool) pause/resume
                 /nubots_walk/shutdown (std_msgs/Bool) exit policy_runner
+                policy_runner/joy (sensor_msgs/Joy) left-stick click → Custom
     Publishes:  /joint_ctrl   (booster_interface/msg/LowCmd)
     """
 
@@ -53,6 +55,8 @@ class RobotBridge(Node):
         cmd_vel_topic: str = "/cmd_vel",
         enable_topic: str = "/nubots_walk/enable",
         shutdown_topic: str = "/nubots_walk/shutdown",
+        joy_topic: str = "policy_runner/joy",
+        custom_mode_button: int = 10,
     ) -> None:
         super().__init__("policy_runner")
 
@@ -78,6 +82,12 @@ class RobotBridge(Node):
         self._shutdown_lock = threading.Lock()
         self._shutdown_requested = False
 
+        self._custom_lock = threading.Lock()
+        self._custom_mode_button = int(custom_mode_button)
+        self._custom_button_was_pressed = False
+        self._custom_mode_requested = False
+        self._joy_sub: Optional[object] = None
+
         self._pub = self.create_publisher(LowCmd, joint_ctrl_topic, 10)
         self._joint_sub = self.create_subscription(
             JointState, joint_state_topic, self._on_joint_state, 10
@@ -94,11 +104,20 @@ class RobotBridge(Node):
         self._shutdown_sub = self.create_subscription(
             Bool, shutdown_topic, self._on_shutdown, 10
         )
+        subscribed = (
+            f"{joint_state_topic}, {low_state_topic}, "
+            f"{cmd_vel_topic}, {enable_topic}, {shutdown_topic}"
+        )
+        if self._custom_mode_button >= 0:
+            self._joy_sub = self.create_subscription(
+                Joy, joy_topic, self._on_joy, 10
+            )
+            subscribed += (
+                f", {joy_topic} (button {self._custom_mode_button} → Custom)"
+            )
 
         self.get_logger().info(
-            f"Subscribed to {joint_state_topic}, {low_state_topic}, "
-            f"{cmd_vel_topic}, {enable_topic}, {shutdown_topic}; "
-            f"publishing to {joint_ctrl_topic}"
+            f"Subscribed to {subscribed}; publishing to {joint_ctrl_topic}"
         )
 
     def has_state(self) -> bool:
@@ -131,6 +150,13 @@ class RobotBridge(Node):
     def shutdown_requested(self) -> bool:
         with self._shutdown_lock:
             return self._shutdown_requested
+
+    def take_custom_mode_request(self) -> bool:
+        """True once per rising edge of the configured joy button."""
+        with self._custom_lock:
+            requested = self._custom_mode_requested
+            self._custom_mode_requested = False
+            return requested
 
     def publish_action(self, action: Action) -> None:
         """Write sparse Action onto a full LowCmd. Uncontrolled joints get weight=0."""
@@ -178,6 +204,17 @@ class RobotBridge(Node):
         with self._shutdown_lock:
             self._shutdown_requested = True
         self.get_logger().info("shutdown requested — exiting policy_runner")
+
+    def _on_joy(self, msg: Joy) -> None:
+        idx = self._custom_mode_button
+        pressed = idx < len(msg.buttons) and bool(msg.buttons[idx])
+        with self._custom_lock:
+            if pressed and not self._custom_button_was_pressed:
+                self._custom_mode_requested = True
+                self.get_logger().info(
+                    f"joy button {idx} pressed — Custom mode requested"
+                )
+            self._custom_button_was_pressed = pressed
 
     def _on_joint_state(self, msg: JointState) -> None:
         q = [0.0] * B1_JOINT_COUNT

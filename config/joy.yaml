@@ -5,10 +5,14 @@
 #   ros2 topic echo /policy_runner/joy
 # If forward/strafe/yaw is inverted, negate the matching scale_*.
 #
-# Xbox buttons: 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 Back, 7 Start, 8 Guide,
-#               9 LS click, 10 RS click
+# This pad reports 14 buttons. Left-stick click (L3) is index 10:
+#   [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]
 # Xbox axes:    0 LS X (left +), 1 LS Y (forward +), 2 RS X, 3 RS Y,
 #               4 LT, 5 RT  (LT/RT index can vary by pad)
+
+policy_runner:
+  ros__parameters:
+    custom_mode_button: 10    # left-stick click → ChangeMode(kCustom)
 
 joy_node:
   ros__parameters:

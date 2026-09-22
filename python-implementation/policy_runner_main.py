@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import select
 import sys
 import time
 from pathlib import Path
@@ -47,6 +48,52 @@ from policy_runner.policy import (
 from policy_runner.robot import RobotBridge, spin_bridge_in_background
 
 CONTROL_DT = 0.02  # 50 Hz target control period
+_REPO_ROOT = _ROOT.parent
+_DEFAULT_JOY_CONFIG = _REPO_ROOT / "config" / "joy.yaml"
+_DEFAULT_JOY_TOPIC = "policy_runner/joy"
+_DEFAULT_CUSTOM_MODE_BUTTON = 10
+
+
+def load_custom_mode_button(
+    config_path: Path, default: int = _DEFAULT_CUSTOM_MODE_BUTTON
+) -> int:
+    if not config_path.is_file():
+        return default
+    try:
+        import yaml
+    except ImportError:
+        return default
+    data = yaml.safe_load(config_path.read_text()) or {}
+    params = (data.get("policy_runner") or {}).get("ros__parameters") or {}
+    try:
+        return int(params.get("custom_mode_button", default))
+    except (TypeError, ValueError):
+        return default
+
+
+def wait_for_start(
+    bridge: RobotBridge, auto_start: bool, custom_mode_button: int
+) -> bool:
+    """Block until ENTER, left-stick click, or --auto-start. False if ROS shuts down."""
+    if auto_start:
+        return True
+    if custom_mode_button >= 0:
+        print(
+            "Press ENTER or left-stick click "
+            f"(joy button {custom_mode_button}) to start policy control..."
+        )
+    else:
+        print("Press ENTER to start policy control...")
+    while rclpy.ok():
+        if bridge.take_custom_mode_request():
+            return True
+        ready, _, _ = select.select([sys.stdin], [], [], 0.1)
+        if ready:
+            sys.stdin.readline()
+            return True
+    return False
+
+
 AVAILABLE = (
     "sine_arm",
     "sine_hip",
@@ -183,9 +230,31 @@ def main(argv: Optional[list[str]] = None) -> int:
         ),
     )
     parser.add_argument(
+        "--joy-topic",
+        default=_DEFAULT_JOY_TOPIC,
+        help=(
+            "Joy topic for the Custom-mode button "
+            f"(default: {_DEFAULT_JOY_TOPIC})"
+        ),
+    )
+    parser.add_argument(
+        "--joy-config",
+        default=str(_DEFAULT_JOY_CONFIG),
+        help="YAML with custom_mode_button (default: repo config/joy.yaml)",
+    )
+    parser.add_argument(
+        "--custom-mode-button",
+        type=int,
+        default=None,
+        help=(
+            "Joy button index that enters Custom mode "
+            "(default: from --joy-config, else 10; -1 disables)"
+        ),
+    )
+    parser.add_argument(
         "--auto-start",
         action="store_true",
-        help="Skip the ENTER prompt and start Custom mode immediately",
+        help="Skip the ENTER / stick-click prompt and start Custom mode immediately",
     )
     parser.add_argument(
         "--model-path",
@@ -231,6 +300,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+    custom_mode_button = (
+        args.custom_mode_button
+        if args.custom_mode_button is not None
+        else load_custom_mode_button(Path(args.joy_config))
+    )
 
     names = parse_policy_list(args.policies)
     if not names:
@@ -302,6 +376,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         cmd_vel_topic=args.cmd_vel_topic,
         enable_topic=args.enable_topic,
         shutdown_topic=args.shutdown_topic,
+        joy_topic=args.joy_topic,
+        custom_mode_button=custom_mode_button,
     )
     spin_bridge_in_background(bridge)
 
@@ -324,6 +400,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         f"shutdown topic: {args.shutdown_topic} "
         f"(true → exit policy_runner)"
     )
+    if custom_mode_button >= 0:
+        print(
+            f"joy topic: {args.joy_topic} "
+            f"(button {custom_mode_button} → ChangeMode(kCustom))"
+        )
     print("Waiting for /joint_states and /low_state (IMU)...")
     ChannelFactory.Instance().Init(0)
     client = B1LocoClient()
@@ -336,8 +417,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         if not rclpy.ok():
             return 1
 
-        if not args.auto_start:
-            input("Press ENTER to start policy control...")
+        if not wait_for_start(bridge, args.auto_start, custom_mode_button):
+            return 1
         client.ChangeMode(RobotMode.kCustom)
         for policy in policies:
             policy.reset()
@@ -352,6 +433,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             if bridge.shutdown_requested():
                 print("shutdown=true → stopping policy_runner")
                 break
+            if bridge.take_custom_mode_request():
+                print("joy custom-mode button → ChangeMode(kCustom)")
+                try:
+                    client.ChangeMode(RobotMode.kCustom)
+                except Exception as e:
+                    print(f"ChangeMode(kCustom) failed: {e}")
             enabled = bridge.is_enabled()
             if enabled and not was_enabled:
                 print("enable=true → ChangeMode(kCustom) + policy reset")
