@@ -1,0 +1,49 @@
+# Joystick + teleop_twist_joy settings for K1 walk (vx, vy, yaw → /cmd_vel).
+#
+# Axis / button indices below assume an Xbox-style pad through ROS 2 joy_node
+# (SDL2). Confirm with:
+#   ros2 topic echo /policy_runner/joy
+# If forward/strafe/yaw is inverted, negate the matching scale_*.
+#
+# Xbox buttons: 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 Back, 7 Start, 8 Guide,
+#               9 LS click, 10 RS click
+# Xbox axes:    0 LS X (left +), 1 LS Y (forward +), 2 RS X, 3 RS Y,
+#               4 LT, 5 RT  (LT/RT index can vary by pad)
+
+joy_node:
+  ros__parameters:
+    device_id: 0
+    device_name: ""
+    deadzone: 0.1
+    autorepeat_rate: 20.0
+    sticky_buttons: false
+    coalesce_interval_ms: 1
+
+teleop_twist_joy_node:
+  ros__parameters:
+    require_enable_button: true
+    enable_button: 4          # LB — hold to send cmd_vel; release zeros twist
+    enable_turbo_button: 5    # RB — hold with LB for turbo scales
+    inverted_reverse: false
+    publish_stamped_twist: false
+
+    # Left stick: vx (forward) / vy (left). Right stick X: yaw (CCW +).
+    axis_linear:
+      x: 1
+      y: 0
+    axis_angular:
+      yaw: 2
+
+    # Regular speed (m/s, rad/s). Conservative vs walk training ranges.
+    scale_linear:
+      x: 1.5
+      y: 1.5
+    scale_angular:
+      yaw: 2.5
+
+    # Turbo speed while enable_turbo_button is held.
+    scale_linear_turbo:
+      x: 3.0
+      y: 3.0
+    scale_angular_turbo:
+      yaw: 6.0
